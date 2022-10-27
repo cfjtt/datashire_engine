@@ -1,0 +1,85 @@
+server.db.address=192.168.137.176
+server.db.dbname=datashire_database_25
+server.db.username=root
+server.db.password=111111
+server.db.port=3306
+
+#cloud
+cloud.db.address=192.168.137.176:3306
+cloud.db.dbname=datashire_cloud
+cloud.db.username=root
+cloud.db.password=111111
+
+#pool settings
+jdbc.pool.init=1
+jdbc.pool.minIdle=3
+jdbc.pool.maxActive=200
+
+socket.compress=0
+
+# KAFKA Brokers
+KAFKA_BROKER_LIST=e176:9092
+KAFKA_LOG_TOPIC=ds_log
+
+# zookeeper
+ZOOKEEPER_ADDRESS=e175,e176,e177:2181
+ZOOKEEPER_GROUP=1
+#ZOOKEEPER_GROUP=2
+ZOOKEEPER_CONSUMER=1
+
+#message
+executeValidationTaskFlag=false
+HSQL_SYS_DB_TYPE=5
+
+# rpc
+rpc.self.port=9003
+rpc.engine.addr=127.0.0.1
+rpc.engine.port=11099
+
+# hbase
+server.db.dataming=datashire_DataMining
+
+# hana
+hana.port=30115
+hana.host=192.168.137.219
+
+# report
+basePathIp=http://192.168.137.160:8082
+
+
+#cloudHdfs
+hdfs_host=__dsfileserverFS
+
+#cloudb
+cloud_host =__biwarehouse
+cloud_password=111111
+
+#delReport
+del_dest=http://192.168.137.176:8080/dropReportTable
+
+#数猎场重试时间
+SERVER_TIMEOUT=300000
+#数猎场允许同时在线人数
+SERVER_MAX_USER=100
+
+#hive
+hive.host=192.168.137.175
+hive.port=10000
+hive.username=hive
+hive.password=111111
+hive.timeout=300
+
+#数猎场hdfs真实地址
+hdfsIpAndPort=192.168.137.175:8020
+#数猎场clouddb真实环境
+cloud_db_num=1
+cloud_db_ip_port0=192.168.137.176:3306
+cloud_db_ip_port1=p2:3306
+cloud_db_ip_port2=p3:3306
+
+#实训squid
+train_file_host=__dsfileTrainFS
+train_file_real_host=192.168.137.175:8020
+#实训file
+train_db_host=__dbTrainHouse
+train_db_real_host=192.168.137.176:3306

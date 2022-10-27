@@ -1,0 +1,15 @@
+#修改.env配置
+KAFKA_ZOOKEEPER_ADDRESS=192.168.137.183:2181
+zookeeper地址，cdh安装时，已经安装过zookeeper
+
+kafka，server，engine部署的地址
+IP=192.168.137.183
+
+#修改engine/conf/configuration.properties相关配置
+#修改server/config/configuration.properties相关配置
+
+#从cdh集群上，将core-site.xml,hdfs-site.xml,hive-site.xml,yarn-site.xml拷贝到hadoop_conf中
+
+#运行redeploy.sh  sh redeploy.sh
+
+#完成部署

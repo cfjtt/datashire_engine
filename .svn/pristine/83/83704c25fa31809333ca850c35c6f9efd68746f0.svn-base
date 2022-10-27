@@ -1,0 +1,117 @@
+package com.eurlanda.datashire.engine.enumeration;
+
+/**
+ * TTransformation info map type
+ * db value and enum mapping must one to one
+ * 大写的是引擎自定义的
+ * 小写的是从transformation的属性
+ * Created by Juntao.Zhang on 2014/5/24.
+ */
+public enum TTransformationInfoType {
+    DESCRIPTION("DESCRIPTION"),
+    NAME("NAME"),
+    OUTPUT_DATA_TYPE("output_data_type"),		// 常量transformation使用
+    CONSTANT_VALUE("constant_value"),		// 常量transformation使用
+
+    REG_EXPRESSION("reg_expression"),//表达式
+    TERM_INDEX("term_index"),//第TermIndex个字串
+
+    OUTPUT_NUMBER("output_number"),//字符串分割数量
+    DELIMITER("delimiter"),//字符串分割符
+    SPLIT_TYPE("split_type"), //分割方式
+    ENCRYPT("encrypt_type"), // 加密类型
+    CONCATENATE_CONNECTOR("connector"),
+    ENCODING("encoding"), // 编码格式
+
+
+    REPEAT_COUNT("replica_count"),//重复次数
+    REPLACEMENT_NEW_STRING("REPLACEMENT_NEW_STRING"),//替换字符串		来源于其它trs ,废弃
+    REPLACEMENT_OLD_STRING("REPLACEMENT_OLD_STRING"),//被替换字符串		来源于其它trs ,废弃
+
+    ALGORITHM("ALGORITHM"),//算法
+    TRAN_CONDITION("TRAN_CONDITION"),
+    LENGTH("length"),
+    START_POSITION("start_position"),
+    DIFFERENCE_TYPE("difference_type"),
+    DATE_FORMAT("date_format"),
+
+    /**
+     * squidflow 运行时属性
+     */
+    PROJECT_ID("PROJECT_ID"),//
+    PROJECT_NAME("PROJECT_NAME"),//
+    SQUID_FLOW_ID("SQUID_FLOW_ID"),//
+    SQUID_FLOW_NAME("SQUID_FLOW_NAME"),//
+    JOB_ID("JOB_ID"),//
+    TASK_ID("TASK_ID"),
+
+    DICT_SQUID("DICT_SQUID"),   // 分词词典，指定的 squid
+    DICT_COLUMN_KEY("DICT_COLUMN_KEY"),   // 分词词典，所属squid的column 对应的 key
+    PREDICT_MODEL_TYPE("PREDICT_MODEL_TYPE"), // 组装所对应的预测模型类别,属性面板选择的已经训练过的模型，用来预测
+    TRAIN_MODEL_TYPE("TRAIN_MODEL_TYPE"), //当前正要训练的模型， 一个train squid中引用了其他的已经训练过的模型，
+    PREDICT_DM_MODEL("PREDICT_DM_MODEL"),   // 训练生成的模型  byte[]
+    // 现在装的的0/1  0：
+    TOKENIZATION_ALGORITHM("algorithm"), // 分词的算法  TFIDF/FEATURE_SELECTION
+
+    // 自增ID，最小值   ----   自增ID
+    ID_AUTO_INCREMENT_MIN("AUTO_INCREMENT_MIN"),
+
+    /** ##################################### 数据校验 ################################### */
+    // 是否为空,  virtTransformation中的属性
+    IS_NULLABLE("IS_NULLABLE"),
+    // 字符串的长度,  virtTransformation中的属性
+    STRING_MAX_LENGTH("STRING_MAX_LENGTH"),
+    // 数字类型的长度  virtTransformation中的属性
+    NUMERIC_PRECISION("NUMERIC_PRECISION"),
+    // 数字类型的精度  virtTransformation中的属性
+    NUMERIC_SCALE("NUMERIC_SCALE"),
+    // 跳过数据校验  virtTransformation中的属性
+    SKIP_VALIDATE("SKIP_VALIDATE"),
+    // virtTransformation 所对应的数据输出类型，即 column数据类型
+    VIRT_TRANS_OUT_DATA_TYPE("VIRT_TRANS_OUT_DATA_TYPE"),
+    // 该输出列参与聚合
+    AGGREGATION_COLUMN("AGGREGATION_COLUMN"),
+    /** ######################################################################## */
+
+    // HBASE 抽取后,标识类型转换 Bytes
+    HBASE_VARBINARY_CONVERT("HBASE_VARBINARY_CONVERT"),
+
+    //Doc抽取后，标识是否进行类型转换
+    DOC_VARCHAR_CONVERT("DOC_VARCHAR_CONVERT"),
+
+    /** 变量 */
+    VARIABLE("VARIABLE"),
+    SQUID_ID("SQUID_ID"),
+
+    POWER("power"),
+
+    /** 日期部分 */
+    INC_UNIT("inc_unit"),
+    /** 取MOD除数 */
+    MODULUS("modulus"),
+    ;
+
+
+    public String dbValue;
+
+    TTransformationInfoType(String dbValue) {
+        this.dbValue = dbValue;
+    }
+
+    public static TTransformationInfoType toTTransformationInfoType(String dbValue) {
+        for (TTransformationInfoType type : TTransformationInfoType.values()) {
+            if (type.dbValue.equalsIgnoreCase(dbValue)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    public String getDbValue() {
+        return dbValue;
+    }
+
+    public void setDbValue(String dbValue) {
+        this.dbValue = dbValue;
+    }
+}

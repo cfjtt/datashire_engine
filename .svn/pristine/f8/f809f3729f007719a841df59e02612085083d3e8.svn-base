@@ -1,0 +1,19 @@
+[supervisord]
+nodaemon=true
+
+;[program:init]
+;commond=/usr/local/datashire/init.sh
+;priority=1
+;autorestart=false
+
+;[program:kafka]
+;command=/usr/local/datashire/kafka/bin/kafka-server-start.sh -daemon /usr/local/datashire/kafka/config/server.properties
+;priority=100
+
+;[program:server]
+;command=/usr/local/datashire/server/run_service_mysql.sh
+;priority=200
+
+;[program:engine]
+;command=/usr/local/datashire/engine/run.sh
+;priority=300

@@ -1,0 +1,449 @@
+package com.eurlanda.datashire.engine.translation;
+
+import com.eurlanda.datashire.adapter.datatype.DataTypeConvertor;
+import com.eurlanda.datashire.adapter.datatype.TypeMapping;
+import com.eurlanda.datashire.engine.entity.*;
+import com.eurlanda.datashire.engine.util.ConfigurationUtil;
+import com.eurlanda.datashire.entity.*;
+import com.eurlanda.datashire.enumeration.DataBaseType;
+import com.eurlanda.datashire.enumeration.SquidTypeEnum;
+import com.eurlanda.datashire.enumeration.TransformationTypeEnum;
+import com.eurlanda.datashire.enumeration.datatype.DbBaseDatatype;
+import com.eurlanda.datashire.utility.EnumException;
+import org.apache.commons.beanutils.BeanUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.lang.reflect.InvocationTargetException;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Dataming 翻译器。
+ * 
+ * @author Gene
+ * 
+ */
+public class DataMingSquidBuilder extends StageBuilder implements TSquidBuilder {
+	protected static Logger logger = LoggerFactory.getLogger(DataMingSquidBuilder.class);
+	public DataMingSquidBuilder(BuilderContext ctx, Squid currentSquid) {
+		super(ctx, currentSquid);
+	}
+
+	@Override
+	public List<TSquid> doTranslate(Squid cur) {
+		DataMiningSquid dms = (DataMiningSquid) cur;
+		TTransformationSquid tTransformationSquid = (TTransformationSquid) doTranslateTransformations(dms);
+		if (tTransformationSquid != null) currentBuildedSquids.add(tTransformationSquid);
+
+		try {
+			SquidTypeEnum squidTypeEnum = SquidTypeEnum.valueOf(dms.getSquid_type());
+			TTrainSquid tTrainSquid = null;
+			switch (squidTypeEnum) {
+				case NAIVEBAYES:        // 朴素贝叶斯。
+					tTrainSquid = new TNaiveBayesClassifiersSquid();
+					TNaiveBayesClassifiersSquid tbs = (TNaiveBayesClassifiersSquid) tTrainSquid;
+					tbs.modelTypeIndex_$eq(dms.getModel_type());
+					tbs.smoothingParameter_$eq(dms.getSmoothing_parameter());
+					tbs.thresholdsCsn_$eq(dms.getThreshold());
+					break;
+				case LOGREG:        // 逻辑回归。
+					tTrainSquid = new TLogisticRegressionSquid();
+					TLogisticRegressionSquid tLogisticRegSquid = (TLogisticRegressionSquid) tTrainSquid;
+					tLogisticRegSquid.elasticNetParam_$eq(dms.getElastic_net_param());
+					tLogisticRegSquid.maxIter_$eq(dms.getIteration_number());
+					tLogisticRegSquid.familyIndex_$eq(dms.getFamily());
+					tLogisticRegSquid.fitIntercept_$eq(dms.getFit_intercept() == 1 ? true : false);
+					tLogisticRegSquid.regParam_$eq(dms.getRegularization());
+					tLogisticRegSquid.standardization_$eq(dms.getStandardization() == 1 ? true : false);
+					tLogisticRegSquid.tolerance_$eq(dms.getTolerance());
+					tLogisticRegSquid.thresholdsCsn_$eq(dms.getThreshold());
+					break;
+				case SVM:        // 支持向量机。
+					tTrainSquid = new TSVMSquid();
+					TSVMSquid svm = (TSVMSquid) tTrainSquid;
+					svm.miniBatchFraction_$eq(dms.getMin_batch_fraction());
+					svm.numIterations_$eq(dms.getIteration_number());
+					svm.stepSize_$eq(dms.getStep_size());
+					svm.regParam_$eq(dms.getRegularization());
+					svm.thresholdsCsn_$eq(dms.getThreshold());
+					break;
+				case ALS:        // 协作过滤。
+					tTrainSquid = new TALSTrainSquid();
+					TALSTrainSquid als = (TALSTrainSquid) tTrainSquid;
+					als.setIterationNumber(dms.getIteration_number());
+					als.setImplicitPrefs(dms.getImplicit_preferences() == 1 ? true : false);
+					als.setLambda(dms.getRegularization());
+					als.setNumBlocks(dms.getParallel_runs());
+					als.setSeed(dms.getSeed());
+					break;
+				case KMEANS:        // 聚类。
+					tTrainSquid = new TKMeansSquid();
+					TKMeansSquid kmeans = (TKMeansSquid) tTrainSquid;
+					kmeans.k_$eq(dms.getK());
+					kmeans.maxIterations_$eq(dms.getIteration_number());
+					kmeans.tolerance_$eq(dms.getTolerance());
+					kmeans.initializationMode_$eq(dms.getInitialization_mode() == 0 ? "k-means||" : "random");
+					kmeans.initSteps_$eq(dms.getInit_Steps());
+					break;
+				case LINEREG:        //  线性回归。
+					tTrainSquid = new TLinearRegressionWithElasticNetSquid();
+					TLinearRegressionWithElasticNetSquid lineRegSquid = (TLinearRegressionWithElasticNetSquid) tTrainSquid;
+					lineRegSquid.standardization_$eq(dms.getStandardization() == 1 ? true : false);
+					lineRegSquid.tolerance_$eq(dms.getTolerance());
+					lineRegSquid.fitIntercept_$eq(dms.getFit_intercept() == 1 ? true : false);
+					lineRegSquid.elasticNetParam_$eq(dms.getElastic_net_param());
+					lineRegSquid.maxIter_$eq(dms.getIteration_number());
+					lineRegSquid.regularization_$eq(dms.getRegularization());
+					lineRegSquid.solverIndex_$eq(dms.getSolver());
+					break;
+				case RIDGEREG:        // 里脊回归。
+					tTrainSquid = new TRidgeRegressionSquid();
+					TRidgeRegressionSquid ridgeReg = (TRidgeRegressionSquid) tTrainSquid;
+					ridgeReg.regularization_$eq(dms.getRegularization());
+					ridgeReg.maxIter_$eq(dms.getIteration_number());
+					ridgeReg.fitIntercept_$eq(dms.getFit_intercept() == 1 ? true : false);
+					ridgeReg.solverIndex_$eq(dms.getSolver());
+					ridgeReg.standardization_$eq(dms.getStandardization() == 1 ? true : false);
+					ridgeReg.tolerance_$eq(dms.getTolerance());
+					break;
+				case QUANTIFY:
+					tTrainSquid = new TQuantifyTrainSquid();
+					TQuantifyTrainSquid qt = (TQuantifyTrainSquid) tTrainSquid;
+					qt.setIgnored(dms.getCase_sensitive() == 0 ? false : true);
+					qt.setMin(dms.getMin_value());
+					qt.setMax(dms.getMax_value());
+					break;
+				case DISCRETIZE:
+					tTrainSquid = new TDiscretizeTrainSquid();
+					TDiscretizeTrainSquid dt = (TDiscretizeTrainSquid) tTrainSquid;
+					dt.setBuckets(dms.getBucket_count());
+					break;
+				case ASSOCIATION_RULES:
+					tTrainSquid = new TAssociationRulesTrainSquid();
+					TAssociationRulesTrainSquid tAssociationRulesTrainSquid = (TAssociationRulesTrainSquid) tTrainSquid;
+					tAssociationRulesTrainSquid.minSupport_$eq(dms.getMin_support());
+					tAssociationRulesTrainSquid.minConfidence_$eq(dms.getMin_confidence());
+					break;
+				case LASSO:
+					tTrainSquid = new TLassoRegressionWithElasticNetSquid();
+					TLassoRegressionWithElasticNetSquid tLassoRegression = (TLassoRegressionWithElasticNetSquid) tTrainSquid;
+					tLassoRegression.regularization_$eq(dms.getRegularization());
+					tLassoRegression.maxIter_$eq(dms.getIteration_number());
+					tLassoRegression.aggregationDepth_$eq(dms.getAggregation_depth());
+					tLassoRegression.fitIntercept_$eq(dms.getFit_intercept() == 1 ? true : false);
+					tLassoRegression.solverIndex_$eq(dms.getSolver());
+					tLassoRegression.standardization_$eq(dms.getStandardization() == 1 ? true : false);
+					tLassoRegression.tolerance_$eq(dms.getTolerance());
+					break;
+				case RANDOMFORESTCLASSIFIER:
+					tTrainSquid = new TRandomForestClassificationSquid();
+					TRandomForestClassificationSquid tRandomForestClassification = (TRandomForestClassificationSquid) tTrainSquid;
+					tRandomForestClassification.featureSubsetStrategyIndex_$eq(dms.getFeature_subset_strategy());
+					tRandomForestClassification.impurityIndex_$eq(dms.getImpurity());
+					tRandomForestClassification.maxBins_$eq(dms.getMax_bins());
+					tRandomForestClassification.maxDepth_$eq(dms.getMax_depth());
+					tRandomForestClassification.minInfoGain_$eq(dms.getMin_info_gain());
+					tRandomForestClassification.numberTrees_$eq(dms.getTree_number());
+					tRandomForestClassification.subsamplingRate_$eq(dms.getSubsampling_rate());
+					tRandomForestClassification.maxCategories_$eq(dms.getMax_categories());
+					tRandomForestClassification.featureSubsetNValue_$eq(dms.getFeature_subset_scale());
+					tRandomForestClassification.thresholdsCsn_$eq(dms.getThreshold());
+					break;
+				case RANDOMFORESTREGRESSION:
+					tTrainSquid = new TRandomForestRegressionSquid();
+					TRandomForestRegressionSquid tRandomForestRegression = (TRandomForestRegressionSquid) tTrainSquid;
+					tRandomForestRegression.featureSubsetStrategyIndex_$eq(dms.getFeature_subset_strategy());
+					tRandomForestRegression.impurityIndex_$eq(dms.getImpurity());
+					tRandomForestRegression.maxBins_$eq(dms.getMax_bins());
+					tRandomForestRegression.maxDepth_$eq(dms.getMax_depth());
+					tRandomForestRegression.minInfoGain_$eq(dms.getMin_info_gain());
+					tRandomForestRegression.numberTrees_$eq(dms.getTree_number());
+					tRandomForestRegression.subsamplingRate_$eq(dms.getSubsampling_rate());
+					tRandomForestRegression.maxCategories_$eq(dms.getMax_categories());
+					tRandomForestRegression.featureSubsetNValue_$eq(dms.getFeature_subset_scale());
+					break;
+				case MULTILAYERPERCEPERONCLASSIFIER:
+					tTrainSquid = new TMultilayerPerceptronClassificationSquid();
+					TMultilayerPerceptronClassificationSquid tmpc = (TMultilayerPerceptronClassificationSquid) tTrainSquid;
+					tmpc.initialWeightsCsn_$eq(dms.getInitialweights());
+					tmpc.hiddenLayersCsn_$eq(dms.getLayers());
+					tmpc.maxIter_$eq(dms.getIteration_number());
+					tmpc.solverIndex_$eq(dms.getSolver());
+					tmpc.tolerance_$eq(dms.getTolerance());
+					tmpc.step_size_$eq(dms.getStep_size());
+					break;
+				case NORMALIZER:
+					tTrainSquid = new TNormalizerSquid();
+					TNormalizerSquid normalizer = (TNormalizerSquid) tTrainSquid;
+					normalizer.methodIndex_$eq(dms.getMethod());
+					normalizer.maxValue_$eq(dms.getMax_value());
+					normalizer.minValue_$eq(dms.getMin_value());
+					break;
+				case PLS:
+					tTrainSquid = new TPartialLeastSquaresRegressionSquid();
+					TPartialLeastSquaresRegressionSquid pls = (TPartialLeastSquaresRegressionSquid) tTrainSquid;
+					pls.maxIter_$eq(dms.getIteration_number());
+					pls.tolerance_$eq(dms.getTolerance());
+					pls.componentCount_$eq(dms.getK());
+					pls.setDependenceSquids(tTransformationSquid.getDependenceSquids());
+					pls.xNormalizerModelSql_$eq(getPLSNormailzerModelSql(
+							tTransformationSquid.gettTransformationActions(), "xNormalizerModel"));
+					pls.yNormalizerModelSql_$eq(getPLSNormailzerModelSql(
+							tTransformationSquid.gettTransformationActions(), "yNormalizerModel"));
+					break;
+				case DECISIONTREEREGRESSION:
+					tTrainSquid = new TDecisionTreeRegressionSquid();
+					TDecisionTreeRegressionSquid tDecTreeRegSquid = (TDecisionTreeRegressionSquid) tTrainSquid;
+					tDecTreeRegSquid.maxCategories_$eq(dms.getMax_categories());
+					tDecTreeRegSquid.impurityIndex_$eq(dms.getImpurity());
+					tDecTreeRegSquid.maxBins_$eq(dms.getMax_bins());
+					tDecTreeRegSquid.maxDepth_$eq(dms.getMax_depth());
+					tDecTreeRegSquid.minInfoGain_$eq(dms.getMin_info_gain());
+					tDecTreeRegSquid.minInstancesPerNode_$eq(dms.getMin_instances_per_node());
+					break;
+				case DECISIONTREECLASSIFICATION:
+					tTrainSquid = new TDecisionTreeClassificationSquid();
+					TDecisionTreeClassificationSquid tDecTreeClassSquid = (TDecisionTreeClassificationSquid) tTrainSquid;
+					tDecTreeClassSquid.maxCategories_$eq(dms.getMax_categories());
+					tDecTreeClassSquid.impurityIndex_$eq(dms.getImpurity());
+					tDecTreeClassSquid.maxBins_$eq(dms.getMax_bins());
+					tDecTreeClassSquid.maxDepth_$eq(dms.getMax_depth());
+					tDecTreeClassSquid.minInfoGain_$eq(dms.getMin_info_gain());
+					tDecTreeClassSquid.minInstancesPerNode_$eq(dms.getMin_instances_per_node());
+					tDecTreeClassSquid.thresholdsCsn_$eq(dms.getThreshold());
+					break;
+				case BISECTINGKMEANSSQUID:
+					tTrainSquid = new TBisectingKMeansSquid();
+					TBisectingKMeansSquid tBisectingKMeansSquid = (TBisectingKMeansSquid) tTrainSquid;
+					tBisectingKMeansSquid.k_$eq(dms.getK());
+					tBisectingKMeansSquid.maxIterations_$eq(dms.getIteration_number());
+					tBisectingKMeansSquid.minDivisibleClusterSize_$eq(dms.getMinDivisibleClusterSize());
+					break;
+				default:
+					throw new RuntimeException("不存在数据挖掘算法" + squidTypeEnum);
+			}
+			tTrainSquid.setPercentage((float) dms.getTraining_percentage());
+			tTrainSquid.settDataSource(buildDataSource(dms));
+			// 设置inkey,根据MODEL,KEY列
+			List<Column> cs = dms.getColumns();
+			int inkey = 0;
+			int key = 0;
+
+			boolean isKey = false;
+			for (Column c : cs) {
+				if (c.getName().equalsIgnoreCase("MODEL")) {
+					inkey = c.getId();
+				} else if (c.getName().equalsIgnoreCase("KEY")) {
+					key = c.getId();
+				}
+			}
+			if (squidTypeEnum == SquidTypeEnum.ASSOCIATION_RULES) {    // 关联规则数据源,因关联规则没有 MODEL 列
+				inkey = tTransformationSquid.gettTransformationActions()
+						.get(tTransformationSquid.gettTransformationActions().size() - 1)
+						.gettTransformation().getOutKeyList().get(0);
+			}
+			for (TTransformationAction ta : tTransformationSquid.gettTransformationActions()) {
+				TTransformation tTransformation = ta.gettTransformation();
+				if (tTransformation.getType() == TransformationTypeEnum.VIRTUAL) {
+					if (tTransformation.getOutKeyList().get(0) == key) {
+						isKey = true;
+						break;
+					}
+				}
+			}
+			if (!isKey) {
+				key = 0;
+			}
+
+//			tTrainSquid.setInKey(ret2.gettTransformationActions().get(ret2.gettTransformationActions().size()-1).gettTransformation().getOutKeyList().get(0));
+			tTrainSquid.setInKey(inkey);
+			tTrainSquid.setKey(key);
+			tTrainSquid.setVersioning(dms.getVersioning() == 1 ? true : false);
+			/*List<Squid> prevs = this.ctx.getPrevSquids(cur);
+			if(prevs.size()==0) throw new RuntimeException("未找到本squid的前置squid.");
+			Squid prevSquid = prevs.get(0);
+			tTrainSquid.setPreSquid(this.ctx.getSquidOut(prevSquid));*/
+			tTrainSquid.setPreSquid(tTransformationSquid);
+			tTrainSquid.setTaskId(this.ctx.taskId);
+			tTrainSquid.setSquidId(cur.getId());
+			tTrainSquid.setName(cur.getName());
+
+			List<Squid> nextSquids = this.ctx.getNextSquids(this.currentSquid); // 是否有系数Squid,dataCatchSquid
+			if (nextSquids.size() > 0) {
+				Set<TSquidType> modelSummaryTSquidTypes = new HashSet();
+				for (Squid nsd : nextSquids) {
+					if (nsd.getSquid_type() == SquidTypeEnum.COEFFICIENT.value()) {
+						modelSummaryTSquidTypes.add(TSquidType.COEFFICIENT_SQUID);
+					}
+					if (nsd.getSquid_type() == SquidTypeEnum.DATAVIEW.value()) {
+						modelSummaryTSquidTypes.add(TSquidType.DATACATCH_SQUID);
+					}
+				}
+				if (modelSummaryTSquidTypes.size() > 0) {
+					tTrainSquid.setModelSummaryTSquidTypes(modelSummaryTSquidTypes);
+				}
+			}
+
+			this.currentBuildedSquids.add(tTrainSquid);
+
+			// 如果有下游连到它，或在DataMinings Squid上设置查看器,目的地,断点，就翻译
+			if (this.ctx.getNextSquids(this.currentSquid).size() > 0
+					|| ctx.isDebugMode()
+					|| currentSquid.isData_viewer_flag()
+					|| currentSquid.isRun_to_here_flag()
+					|| currentSquid.isBreak_flag()) {
+				TInnerExtractSquid tInnerExtractSquid = buildInnerExtractModelSquid(dms,tTrainSquid);
+				this.currentBuildedSquids.add(tInnerExtractSquid);
+			}
+		} catch (EnumException e) {
+			logger.error("DataMingSquidBuilder异常：" + e.getMessage());
+			e.printStackTrace();
+		}
+		return currentBuildedSquids;
+	}
+
+	/**
+	 *  内部抽取模型squid
+	 * @param dataMiningSquid
+	 * @param tTrainSquid
+	 * @return
+	 */
+	private TInnerExtractSquid buildInnerExtractModelSquid(DataMiningSquid dataMiningSquid,	TTrainSquid tTrainSquid){
+		TDataSource tDataSource = new TDataSource();
+		tDataSource.setHost(ConfigurationUtil.getInnerDataMiningMySQLHost());
+		tDataSource.setPort(ConfigurationUtil.getInnerDataMiningMySQLPort());
+		tDataSource.setDbName(ConfigurationUtil.getInnerDataMiningMySQLDatabaseName());
+		tDataSource.setPassword(ConfigurationUtil.getInnerDataMiningMySQLUserPassword());
+		tDataSource.setUserName(ConfigurationUtil.getInnerDataMiningMySQLUserName());
+		tDataSource.setTableName(TTrainSquid.genTrainModelTableName(this.ctx.getRepositoryId(), this.ctx.squidFlow.getId(), this.currentSquid.getId()));
+		tDataSource.setType(DataBaseType.MYSQL);
+
+		//DM 的输出列都要在查看器中显示
+		Set<TColumn> cols = buildOutputAllColumns(dataMiningSquid);
+		TDatabaseSquid tDatabaseSquid = new TDatabaseSquid();
+		tDatabaseSquid.setColumnSet(cols);
+		tDatabaseSquid.setDataSource(tDataSource);
+		for (TColumn tColumn : tDatabaseSquid.getColumnSet()) { // 在data mining squid上设置查看器时，只查看最新的版本
+			if (tColumn.getName().equalsIgnoreCase("version")) {
+				tDatabaseSquid.setDataMiningModelVersionColumnId(tColumn.getId()); //取最新的模型版本
+			} else if (tColumn.getName().equalsIgnoreCase("id")) { // 分片列
+				tDatabaseSquid.setSplitCol(tColumn);
+				tDatabaseSquid.setSplitNum(1);
+			}
+		}
+		TInnerExtractSquid tInnerExtractSquid = new TInnerExtractSquid(); //从落地后的数据库中抽取模型
+		tInnerExtractSquid.setPreTSquid(tTrainSquid);
+		tInnerExtractSquid.setSquidId(dataMiningSquid.getId());
+		tInnerExtractSquid.settDatabaseSquid(tDatabaseSquid);
+		return tInnerExtractSquid;
+	}
+
+	/**
+	 * 关联规则 保存输出列所有有连线的columnId
+	 * @param wes
+	 * @return
+     */
+	private Set<TColumn> buildOutputAllColumns(DataSquid wes) {
+		Set<TColumn> columnMap = new HashSet<>();
+		Integer dbType = null;
+		Squid ds = this.ctx.getPrevSquids(currentSquid).get(0);
+		if (ds instanceof DbSquid) {
+			dbType = ((DbSquid) ds).getDb_type();
+		} else if (ds instanceof WebSquid) {
+			dbType = DataBaseType.HBASE_PHOENIX.value();
+		} else if (ds instanceof WeiboSquid) {
+			dbType = DataBaseType.HBASE_PHOENIX.value();
+		}
+		for (Column column : wes.getColumns()) {
+			TColumn c = new TColumn();
+			c.setDbBaseDatatype(DbBaseDatatype.parse(column.getData_type()));
+			TDataType type = TDataType.sysType2TDataType(column.getData_type());
+			if (type == null) {
+				throw new RuntimeException(String.format("Squid[%s] 转换ReferenceColumn[%s] type[%s]出错，数据类型为null", wes.getName(), column.getName(), column.getData_type()));
+			} else {
+				c.setData_type(type);
+			}
+			c.setId(column.getId());
+			c.setName(column.getName());
+			c.setBusinessKey(column.getIs_Business_Key() == 1 ? true : false);
+			c.setCdc(column.getCdc());
+			SourceColumn sc = new SourceColumn();
+			try {
+				BeanUtils.copyProperties(sc, column);
+			} catch (IllegalAccessException e) {
+				e.printStackTrace();
+			} catch (InvocationTargetException e) {
+				e.printStackTrace();
+			}
+			TypeMapping tm = DataTypeConvertor.getInTypeMappingBySourceColumn(dbType, sc);
+			if (tm != null) {
+				c.setJdbcDataType(TDataType.str2TDataType(tm.getJavaType().toLowerCase()));
+			}
+			c.setLength(column.getLength());
+			c.setNullable(column.isNullable());
+			c.setPrecision(column.getPrecision());
+			c.setPrimaryKey(column.isIsPK());
+			c.setScale(column.getScale());
+			columnMap.add(c);
+		}
+		return columnMap;
+	}
+
+	/**
+		 * 落地squid.
+		 * 
+		 * @param stageSquid
+		 * @return
+		 */
+	private TDataSource buildDataSource(DataSquid stageSquid) {
+		if (stageSquid.getDestination_squid_id() == 0) { // 设置落地但没有指定落地库。隐式落地。
+			// 落地到MySQL,不要指定表名，系统会自动生成表名
+			TDataSource tDataSource = new TDataSource();
+			tDataSource.setType(DataBaseType.MYSQL);
+			tDataSource.setHost(ConfigurationUtil.getInnerDataMiningMySQLHost() + ":" + ConfigurationUtil.getInnerDataMiningMySQLPort());
+			tDataSource.setPort(ConfigurationUtil.getInnerDataMiningMySQLPort());
+			tDataSource.setDbName(ConfigurationUtil.getInnerDataMiningMySQLDatabaseName());
+			tDataSource.setUserName(ConfigurationUtil.getInnerDataMiningMySQLUserName());
+			tDataSource.setPassword(ConfigurationUtil.getInnerDataMiningMySQLUserPassword());
+			return tDataSource;
+		} else { // 指定地点的落地。
+			int squidId = stageSquid.getDestination_squid_id();
+			Squid destSquid = ctx.getSquidById(squidId);
+			if (SquidTypeEnum.parse(destSquid.getSquid_type()) == SquidTypeEnum.DBSOURCE) {
+				DbSquid dbSquid = (DbSquid) destSquid;
+				TDataSource tDataSource = new TDataSource();
+				tDataSource.setDbName(dbSquid.getDb_name());
+				tDataSource.setUserName(dbSquid.getUser_name());
+				tDataSource.setPassword(dbSquid.getPassword());
+				tDataSource.setType(DataBaseType.parse(dbSquid.getDb_type()));
+				tDataSource.setTableName(stageSquid.getTable_name());
+				tDataSource.setHost(dbSquid.getHost());
+				tDataSource.setPort(dbSquid.getPort());
+				return tDataSource;
+			}
+			throw new RuntimeException("没有指定落地数据源");
+		}
+	}
+
+	private String getPLSNormailzerModelSql(List<TTransformationAction> tTransformationActions, String modelSql) {
+		String modelObj = null;
+		for (TTransformationAction tTransformationAction : tTransformationActions) {
+			TransformationTypeEnum transformationType = tTransformationAction.gettTransformation().getType();
+			if (transformationType == TransformationTypeEnum.TRAIN) {
+				Map<String, Object> infoMap = tTransformationAction.gettTransformation().getInfoMap();
+				int inkeySize = tTransformationAction.gettTransformation().getInKeyList().size();
+				if (inkeySize == 2) { // pls连入2个inputs， 没有key
+					return (String) infoMap.get(modelSql);
+				} else if (inkeySize == 3) {
+					// 存在key
+					throw new RuntimeException("NormalizerModel没有key");
+				}
+			}
+		}
+		return modelObj;
+	}
+
+}

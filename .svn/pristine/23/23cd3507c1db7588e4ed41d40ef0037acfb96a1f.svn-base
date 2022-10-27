@@ -1,0 +1,2 @@
+#! /bin/bash
+docker ps -a |grep mysql-meta |awk '{print "docker rm -f " $1}' | sh

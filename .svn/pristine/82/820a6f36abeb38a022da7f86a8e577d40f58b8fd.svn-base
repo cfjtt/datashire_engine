@@ -1,0 +1,79 @@
+package com.eurlanda.datashire.common.rpc.server;
+
+import com.eurlanda.datashire.common.rpc.IEngineService;
+import com.eurlanda.datashire.engine.service.RpcServerFactory;
+import org.apache.avro.AvroRemoteException;
+
+/**
+ * Created by zhudebin on 14-5-17.
+ */
+public class EngineRPCClient {
+
+    public static void main(String[] args) {
+          launch(1, 8739, "{\"breakPoints\":[],\"dataViewers\":[179487],\"destinations\":[]}");
+//          launchStream(3, 1403);
+//        launch(1, 8719, "{\"hello\":[1]}");
+//        launch(1, 266);
+//        stop("e8053cda-ee9b-418a-a332-5f341d941e0a");
+
+//        stopStreamJob("application_1468666259181_0027", "{\"userid\":\"31\"}");
+        System.exit(-1);
+    }
+
+    public static void launch(int repositoryId, int squidFlowId, String ddv) {
+        IEngineService iEngineService = RpcServerFactory.getEngineService();
+        try {
+            String taskId = iEngineService.launchEngineJob(squidFlowId, repositoryId, ddv, "").toString();
+            System.out.println(taskId);
+//            System.exit(0);
+        } catch (AvroRemoteException e) {
+            e.printStackTrace();
+        }
+//        System.exit(0);
+    }
+
+    public static void launch(int repositoryId, int squidFlowId) {
+        IEngineService iEngineService = RpcServerFactory.getEngineService();
+        try {
+            String taskId = iEngineService.launchEngineJob(squidFlowId, repositoryId, "", "").toString();
+            System.out.println(taskId);
+//            System.exit(0);
+        } catch (AvroRemoteException e) {
+            e.printStackTrace();
+        }
+//        System.exit(0);
+    }
+
+    public static void launchStream(int repositoryId, int squidFlowId) {
+        IEngineService iEngineService = RpcServerFactory.getEngineService();
+        try {
+            String taskId = iEngineService.launchStreamJob(squidFlowId, repositoryId, "{}").toString();
+            System.out.println(taskId);
+            //            System.exit(0);
+        } catch (AvroRemoteException e) {
+            e.printStackTrace();
+        }
+        //        System.exit(0);
+    }
+
+    public static void stop(String taskId) {
+        IEngineService iEngineService = RpcServerFactory.getEngineService();
+        try {
+            iEngineService.shutdownSFTask(taskId, "");
+            System.out.println(taskId + " 关闭成功");
+            System.exit(0);
+        } catch (AvroRemoteException e) {
+            e.printStackTrace();
+        }
+        System.exit(0);
+    }
+
+    public static void stopStreamJob(String appId, String config) {
+        IEngineService iEngineService = RpcServerFactory.getEngineService();
+        try {
+            iEngineService.shutdownStreamJob(appId, config);
+        } catch (AvroRemoteException e) {
+            e.printStackTrace();
+        }
+    }
+}

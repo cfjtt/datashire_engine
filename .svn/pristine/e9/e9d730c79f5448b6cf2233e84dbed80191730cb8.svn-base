@@ -1,0 +1,2 @@
+#! /bin/bash
+cd /opt/engine && jar -uf engine.jar conf/configuration.properties && sh initYarnJar.sh ./lib && java -Xms512m -Xmx4000m -XX:PermSize=256M -XX:MaxPermSize=512m  -Dlog.dir=/opt/engine/engine-logs -Dspring.profiles.active=cloud -cp /opt/engine/engine.jar:/opt/engine/lib/*:/opt/engine/hadoop_conf com.eurlanda.datashire.engine.EngineServer

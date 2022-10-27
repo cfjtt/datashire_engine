@@ -1,0 +1,137 @@
+package com.eurlanda.datashire.engine.spark.mllib.nlp
+
+import java.util
+import java.util.{List => JList}
+
+import com.eurlanda.datashire.engine.entity.{DataCell, TDataType, TTransformationSquid}
+import com.eurlanda.datashire.engine.spark.util.SegProcessor
+import com.eurlanda.datashire.engine.util.UUIDUtil
+import org.apache.spark.api.java.{JavaRDD, JavaSparkContext}
+import org.apache.spark.storage.StorageLevel
+
+import scala.collection.JavaConverters._
+import scala.collection.mutable
+
+/**
+  * 1.将要分词的字段分词
+  * 2.求出TFIDF
+  * 3.以dict为字典,创建一个dict.size的数组,将对应词典位置的词的ifidf设置为数组的值
+  * Created by zhudebin on 14-6-4.
+ */
+class TFIDFSquid(preRDD: JavaRDD[util.Map[Integer, DataCell]],
+                 inKey: Integer,
+                 outKey: Integer,
+                 dict: JList[String],isContanst:Boolean,inputValue:String) extends Serializable {
+
+    def run(jsc: JavaSparkContext) = {
+//        preRDD.persist(StorageLevel.MEMORY_AND_DISK)
+        val isConBd =  jsc.broadcast(isContanst)
+        val inputValueBd = jsc.broadcast(inputValue)
+        val _preRDD = preRDD.rdd.map((m:java.util.Map[Integer, DataCell]) => {
+            if(isConBd.value){
+                if(inputValueBd.value == null || inputValueBd.value.length == 0){
+                    m.put(TTransformationSquid.ERROR_KEY, new DataCell(TDataType.STRING, "数据不能为空"))
+                } /*else {
+                    m.put(outKey,new DataCell(TDataType.STRING,inputValueBd.value))
+                }*/
+            } else {
+                if (m.get(inKey) == null || m.get(inKey).getData == null || m.get(inKey).getData.toString.length == 0) {
+                    m.put(TTransformationSquid.ERROR_KEY, new DataCell(TDataType.STRING, "数据不能为空"))
+                }
+            }
+          m
+        }).persist(StorageLevel.MEMORY_AND_DISK)
+
+        // 异常数据
+        val erdd = _preRDD.filter((m:java.util.Map[Integer, DataCell]) => {
+            m.containsKey(0)
+        })
+
+        // 正常数据
+        val rdd = _preRDD.filter((m:java.util.Map[Integer, DataCell]) => {
+            !m.containsKey(0)
+        })
+
+
+        // 文档数
+        val fileCount = rdd.count()
+        val resultRDD = rdd.flatMap((m: util.Map[Integer, DataCell]) => {
+          var str = ""
+          if (isConBd.value) {
+            str = inputValueBd.value
+          } else {
+            str = m.get(inKey).getData.toString
+          }
+
+          val wList = SegProcessor.getWords(str, dict.asScala.toList)
+          val wordCount = wList.size
+          // 每个单词重复的次数
+          val map: mutable.Map[String, Int] = mutable.Map.empty[String, Int]
+          val dwList: Map[String, List[String]] = wList.groupBy[String](str => str)
+          dwList.foreach((t: (String, List[String])) => {
+            map(t._1) = t._2.size
+          })
+
+          val id = UUIDUtil.genUUID()
+          for (w <- dwList.keys)
+            yield {
+              // id 用来标记末一行，w  用来保存分词，
+              // TF 保存词频 d  保存原始数据
+              // TF 词频 (TF) 是一词语出现的次数除以该文件的总词语数。
+              // 假如一篇文件的总词语数是100个，而词语“母牛”出现了3次，
+              // 那么“母牛”一词在该文件中的词频就是3/100=0.03。
+              Map[String, Any]("id" -> id, "w" -> w, "TF" -> (map(w).toDouble / wordCount), "d" -> m)
+            }
+        }).groupBy((data: Map[String, Any]) => {
+            data("w").toString
+        }).flatMap(tuple2 => {
+            val seq: Seq[Map[String, Any]] = tuple2._2.toSeq
+
+            // TF 词频 (TF) 是一词语出现的次数除以该文件的总词语数。
+            // 假如一篇文件的总词语数是100个，而词语“母牛”出现了3次，
+            // 那么“母牛”一词在该文件中的词频就是3/100=0.03。
+
+            // IDF 一个计算文件频率 (IDF) 的方法是测定有多少份文件出现过“母牛”一词，
+            // 然后除以文件集里包含的文件总数。所以，如果“母牛”一词在1,000份文件出现过，
+            // 而文件总数是10,000,000份的话，其逆向文件频率就是
+            // lg(10,000,000 / 1,000)=4
+
+            // TF-IDF  TF-IDF的分数为0.03 * 4=0.12
+
+            // 该词出现的文件数
+            val wc = seq.size // 这里应该至少一个
+            for (m <- seq) yield {
+                // TF
+                val tf = m("TF").asInstanceOf[Double]
+                // IDF
+//                val idf = fileCount / wc.toDouble
+                val idf = math.log10(fileCount / wc.toDouble)
+
+                // TF-IDF
+                Map[String, Any]("id" -> m("id"), "tfidf" -> tf * idf,
+                    "w" -> m("w"), "d" -> m("d"))
+            }
+        })
+        .groupBy(m => m("id").toString)
+        .map((f: (String, Iterable[Map[String, Any]])) => {
+            val feature = new Array[Double](dict.size)
+            f._2.foreach(m => {
+                val idex = dict.indexOf(m("w"))
+                if(idex != -1) {
+                    feature(idex) = m("tfidf").asInstanceOf[Double]
+                }
+            })
+
+            val map: util.Map[Integer, DataCell] = new util.HashMap[Integer, DataCell]()
+            map.put(outKey, new DataCell(TDataType.CSN, feature.mkString(",")))
+            for ((es: util.Map.Entry[Integer, DataCell]) <- f._2.head("d").asInstanceOf[util.Map[Integer, DataCell]].entrySet().asScala) {
+                map.put(es.getKey, es.getValue)
+            }
+            map
+        }).union(erdd)
+
+        _preRDD.unpersist()
+        resultRDD
+    }
+
+}

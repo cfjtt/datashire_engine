@@ -1,0 +1,112 @@
+package com.eurlanda.datashire.engine.entity.transformation;
+
+import com.eurlanda.datashire.engine.entity.DataCell;
+import com.eurlanda.datashire.engine.entity.TDataType;
+import com.eurlanda.datashire.engine.entity.TJobContext;
+import com.eurlanda.datashire.engine.entity.TTransformation;
+import com.eurlanda.datashire.engine.entity.TTransformationAction;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.Function;
+import org.apache.spark.broadcast.Broadcast;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static com.eurlanda.datashire.engine.entity.TTransformationSquid.ERROR_KEY;
+
+/**
+ * Created by zhudebin on 14-6-5.
+ */
+public class CommonProcessor extends TransformationProcessor {
+
+    /**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
+
+
+    private static Log log = LogFactory.getLog(CommonProcessor.class);
+
+    // 待做的transformation 操作
+    private List<TTransformationAction> tTransformationActions_input;
+    private TJobContext jobContext_input;
+    private boolean isPreviousExceptionSquid_input;
+
+    public CommonProcessor(JavaRDD<Map<Integer, DataCell>> inputRDD, List<TTransformationAction> tTransformationActions, boolean isPreviousExceptionSquid, TJobContext jobContext) {
+        this.inputRDD = inputRDD;
+        this.tTransformationActions_input = tTransformationActions;
+        this.isPreviousExceptionSquid_input = isPreviousExceptionSquid;
+        this.jobContext_input = jobContext;
+    }
+
+    public JavaRDD<Map<Integer, DataCell>> process(JavaSparkContext jsc) {
+
+        final Broadcast<List<TTransformationAction>> tTransformationActions_bc = jsc.broadcast(tTransformationActions_input);
+        final Broadcast<Boolean> isPreviousExceptionSquid_bc = jsc.broadcast(isPreviousExceptionSquid_input);
+//        final Broadcast<TJobContext> jobContext_bc = jsc.broadcast(jobContext_input);
+
+        return inputRDD.map(new Function<Map<Integer, DataCell>, Map<Integer, DataCell>>() {
+            @Override
+            public Map<Integer, DataCell> call(Map<Integer, DataCell> in) throws Exception {
+
+                List<TTransformationAction> tTransformationActions = tTransformationActions_bc.value();
+//                TJobContext jobContext = jobContext_bc.value();
+                boolean isPreviousExceptionSquid = isPreviousExceptionSquid_bc.value();
+                if (MapUtils.isEmpty(in)) return in;
+                //备份原始值
+                Map<Integer, DataCell> result = new HashMap<>();
+                for (Integer key : in.keySet()) {
+                    result.put(key, in.get(key));
+                }
+                boolean flag=false;
+                for (TTransformationAction action : tTransformationActions) {
+                    try {
+                        // 判断数据是否异常,异常则不会往下走了
+                        if (!result.containsKey(ERROR_KEY) ||
+                                (isPreviousExceptionSquid)  ) {
+                           // action.gettTransformation().process(result);
+                            TTransformation tTransformation = action.gettTransformation();
+                            tTransformation.process(result);
+
+                            //不能马上remove掉，因为有的列会映射多个导出的列，马上remove掉会导致后面映射这个列的
+                            //找不到
+//                            if (CollectionUtils.isNotEmpty(action.getRmKeys())) {
+//                                for (Integer key : action.getRmKeys()) {
+//                                    result.remove(key);
+//                                }
+//                            }
+                        }
+                    } catch (Exception e) {
+                        log.error("transformation 异常 ", e);
+//                        EngineLogFactory.logError(jobContext, new TransformationException(result,action.gettTransformation(), e));
+                        if (in.size() != 0) {
+                            result.put(ERROR_KEY, new DataCell(TDataType.STRING, e.getMessage()));
+                        }
+                        break;
+                    }
+                }
+
+                    for (TTransformationAction action : tTransformationActions) {
+                        if (!result.containsKey(ERROR_KEY) ||
+                                (isPreviousExceptionSquid)) {
+                            if (CollectionUtils.isNotEmpty(action.getRmKeys())) {
+                                for (Integer key : action.getRmKeys()) {
+                                    result.remove(key);
+                                }
+                            }
+                        }
+                    }
+                return result;
+            }
+        });
+
+    }
+
+
+}

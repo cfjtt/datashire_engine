@@ -1,0 +1,116 @@
+#SPARK_MASTER_URL=spark://e101:7077
+#SPARK_HOME_DIR=/home/squid/dse/spark
+#SCHEDULER_LOCATION=/home/squid/soft/spark_yarn/conf/fairscheduler.xml
+# spark
+SPARK_EXECUTOR_MEMORY=7g
+SPARK_YARN_QUEUE=spark
+SPARK_EXECUTOR_CORES=3
+SPARK_EXECUTOR_INSTANCES=0
+SPARK_DRIVER_MEMORY=2G
+SPARK_YARN_ENGINE_JARS_DIR=hdfs://ehadoop/user/datashire/spark201-ds-jars/
+SPARK_JAR_LOCATION=engine.jar,lib/uds-demo.jar,lib/uds-demo1.jar
+SPARK_PROXY_USER=
+SPARK_DRIVER_HOST=
+#SPARK_JAR_LOCATION=/Users/zhudebin/Documents/iworkspace/ds_trunk/out/artifacts/engine_jar/engine.jar
+#SPARK_PROXY_USER=squid
+SPARK_CONFIG={"spark.executor.logs.rolling.maxRetainedFiles":"10", "spark.executor.logs.rolling.strategy":"time", "spark.executor.logs.rolling.time.interval":"hourly","spark.sql.crossJoin.enabled":"true"}
+spark_driver_extraJavaOptions=-XX:PermSize=128M -XX:MaxPermSize=512m
+#spark_executor_extraJavaOptions=-XX:PermSize=128M -XX:MaxPermSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/hdata/data01/
+spark_executor_extraJavaOptions=-XX:PermSize=128M -XX:MaxPermSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/hdata/data01/
+
+# 动态资源分配
+SPARK_DYNAMICALLOCATION_ENABLED=true
+SPARK_DYNAMICALLOCATION_CONFIG={"spark.shuffle.service.enabled":"true","spark.dynamicAllocation.cachedExecutorIdleTimeout":"1200s","spark.dynamicAllocation.minExecutors":"2"}
+
+#最大并发运行数
+PARALLEL_NUM=10
+#hbase 默认分片数
+HBASE_EXTRACT_PARTITIONS_DEFAULT=32
+# 数据库分页查询，pageSize
+SQL_PAGE_SIZE=10000
+
+# engine rpc server 测试使用
+ENGINE_RPC_SERVER_IP=127.0.0.1
+#ENGINE_RPC_SERVER_IP=192.168.137.101
+ENGINE_RPC_SERVER_PORT=11099
+
+# report rpc server 报表功能已经移除
+REPORT_RPC_SERVER_IP=127.0.0.1
+REPORT_RPC_SERVER_PORT=9002
+
+# server rpc server
+SERVER_RPC_SERVER_IP=127.0.0.1
+SERVER_RPC_SERVER_PORT=9003
+
+# crawler rpc server爬虫功能已经移除
+CRAWLER_RPC_SERVER_IP=127.0.0.1
+CRAWLER_RPC_SERVER_PORT=9093
+
+# KAFKA Brokers
+KAFKA_BROKER_LIST=e102:9092
+KAFKA_LOG_TOPIC=ds_log
+
+# zookeeper kafka
+KAFKA_ZOOKEEPER_ADDRESS=e101,e102,e103:2181
+
+MAIL_PROTOCOL=smtp
+MAIL_HOST=smtp.exmail.qq.com
+MAIL_PORT=465
+MAIL_USERNAME=shuliecloud@eurlanda.com
+MAIL_PASSWORD=Eurlanda123
+MAIL_SMTP_AUTH=true
+MAIL_SMTP_STARTTLS_ENABLE=true
+
+IS_LOG_TO_DB=false
+IS_LOCAL=false
+IS_START_SCHEDULE=true
+START_THRIFTSERVER=false
+ENABLE_HIVE=true
+
+HIVE_SERVER2_THRIFT_PORT=10008
+
+# webService
+WEB_SERVICE.TOKEN=85C53BB8CAF87075DB8EFCB56CAB13D6
+WEB_SERVICE.PORT=8580
+WEB_SERVICE.URL=DataShireApi
+WEB_SERVICE.IP=192.168.137.101
+
+# 内置的 mysql 地址
+INNER_MYSQL_HOST=192.168.137.202
+INNER_MYSQL_PORT=3306
+INNER_MYSQL_DATABASENAME=datashire_database2
+INNER_MYSQL_USERNAME=root
+INNER_MYSQL_PASSWORD=111111
+
+# 内置的 DataMining  mysql地址
+INNER_DataMining_MYSQL_DATABASENAME=datashire_DataMining2
+
+#内置datashire_cloud地址
+INNER_WEB_MYSQL_HOST=192.168.137.202
+INNER_WEB_MYSQL_PORT=3306
+INNER_WEB_MYSQL_DATABASENAME=datashire_cloud
+INNER_WEB_MYSQL_USERNAME=root
+INNER_WEB_MYSQL_PASSWORD=111111
+
+CLOUD_HDFS_FS_DEFAULTFS=ehadoop
+CLOUD_DB_NUM=1
+CLOUD_DB_IP_PORT0=p1:3306
+CLOUD_DB_IP_PORT1=p2:3306
+CLOUD_DB_IP_PORT2=p3:3306
+IS_CLOUD_PUBLIC_PROJECT=true
+
+#CASSANDRA默认端口
+CASSANDRA_PORT=9042
+
+#任务最长等待时间(10分钟)
+WAIT_TIME_OUT=1000*60*10
+
+#队列长度
+WAIT_QUEUE_SIZE=2000
+
+#实训squid
+train_file_host=__dsfileTrainFS
+train_file_real_host=192.168.137.160:8020
+#实训file
+train_db_host=__dbTrainHouse
+train_db_real_host=192.168.137.151:3306

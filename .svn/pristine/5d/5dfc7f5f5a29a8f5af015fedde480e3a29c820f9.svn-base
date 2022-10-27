@@ -1,0 +1,4 @@
+环境切换，需要修改两处：
+1.ConfigurationUtil
+2.applicationContext.xml
+将其中/conf/configuration_{环境变量 dev/test/ }.properties

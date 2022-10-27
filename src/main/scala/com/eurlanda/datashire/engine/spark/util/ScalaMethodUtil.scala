@@ -1,0 +1,542 @@
+package com.eurlanda.datashire.engine.spark.util
+
+import java.math.BigDecimal
+import java.util
+import java.util.{List => JList, Map => JMap}
+
+import com.eurlanda.datashire.engine.entity.AggregateAction.Type
+import com.eurlanda.datashire.engine.entity.{AggregateAction, DataCell, TDataType, TOrderItem}
+import com.eurlanda.datashire.engine.exception.EngineException
+import com.eurlanda.datashire.engine.util.SquidUtil.{AvgItem, CountItem}
+import com.eurlanda.datashire.engine.util.{DSUtil, OrderUtil}
+import org.apache.spark.api.java.JavaRDD
+import org.apache.spark.rdd.RDD
+import org.apache.spark.storage.StorageLevel
+
+import scala.collection.JavaConversions._
+import scala.collection.mutable
+import scala.collection.mutable.{ArrayBuffer, StringBuilder}
+
+/**
+ * Created by zhudebin on 14-6-10.
+ */
+object ScalaMethodUtil {
+    override def hashCode(): Int = super.hashCode()
+
+    /**
+     * 设置自增主键, 区间自增，性能好一点
+      *
+      * @param inRDD 输入RDD
+     * @param min 最小值
+     * @param maxPartition 每个分片的最大值
+     * @param outKey 输出KEY
+     * @return
+     */
+    def mapPartitionsWithIndex(inRDD: JavaRDD[java.util.Map[Integer, DataCell]], min:Long,
+                               maxPartition: Long, outKey:Int): JavaRDD[java.util.Map[Integer, DataCell]] = {
+        inRDD.rdd.mapPartitionsWithIndex{
+            case (index, iter) => {
+                var num:Long = 1
+                val cnum:Long = min + (index -1) * maxPartition
+                for(it <- iter) yield {
+                    it.put(outKey, new DataCell(TDataType.LONG, cnum + num))
+                    num += 1
+                    it
+                }
+            }
+        }.toJavaRDD()
+    }
+
+    /**
+     * 设置自增主键, 真正的自增, 性能差一点
+      *
+      * @param inRDD 输入RDD
+     * @param min 最小值
+     * @param outKey 输出KEY
+     * @return
+     */
+    def mapPartitionsWithIndex(inRDD: JavaRDD[java.util.Map[Integer, DataCell]], min:Long,
+                               outKey:Int): JavaRDD[java.util.Map[Integer, DataCell]] = {
+
+        val rdd = inRDD.rdd.persist(StorageLevel.MEMORY_AND_DISK)
+        val mp:Map[Int,Long] = rdd.mapPartitionsWithIndex[(Int,Long)] {
+            (index, iter) => {
+                var count:Long = 0
+                while(iter.hasNext) {
+                  iter.next()
+                  count +=1
+                }
+              // TODO 这里存在内存溢出的可能
+              /**
+                for(it <- iter) {
+                    count += 1
+                }
+                  */
+                Iterator((index, count))
+            }
+        }.collect().toMap
+
+        val jrdd = rdd.mapPartitionsWithIndex{
+            case (index, iter) => {
+                /**
+                var num:Long = 1
+                def totalPre(mp:Map[Int,Long], index:Int) = {
+                    var res = 0l
+                    for(i <- 0 until index)  {
+                        val re = mp.getOrElse(i, null)
+                        if(re == null) {
+                        } else {
+                            res = re.asInstanceOf[Long] + res
+                        }
+                    }
+                    res
+                }
+                val cnum:Long = min + totalPre(mp, index)
+                // 会导致内存溢出, for 会把数据全部导入内存
+                for(it <- iter) yield {
+                    num += 1
+                    it.put(outKey, new DataCell(TDataType.LONG, cnum + num))
+                    it
+                }  */
+
+                new util.Iterator[java.util.Map[Integer, DataCell]] {
+                  var num:Long = 1
+                  def totalPre(mp:Map[Int,Long], index:Int) = {
+                    var res = 0l
+                    for(i <- 0 until index)  {
+                      val re = mp.getOrElse(i, null)
+                      if(re == null) {
+                      } else {
+                        res = re.asInstanceOf[Long] + res
+                      }
+                    }
+                    res
+                  }
+                  val cnum:Long = min + totalPre(mp, index)
+
+                  override def next(): JMap[Integer, DataCell] = {
+                    val data = iter.next()
+                    num += 1
+                    data.put(outKey, new DataCell(TDataType.LONG, cnum + num))
+                    data
+                  }
+
+                  override def remove(): Unit = {
+                    iter.remove()
+                  }
+
+                  override def hasNext: Boolean = {
+                    iter.hasNext
+                  }
+                }
+            }
+        }.toJavaRDD()
+
+        rdd.unpersist()
+        jrdd
+    }
+
+    def toDouble(in:Integer) = {
+        in.toDouble
+    }
+
+    def toDouble(in:Float) = {
+        in.toDouble
+    }
+
+  def aggregateRDD(preRDD: JavaRDD[JMap[Integer, DataCell]], groupKeyListParam: JList[Integer],
+                   aaListParam: JList[AggregateAction]):RDD[JMap[Integer, DataCell]] = {
+    val groupKeyList_bc = preRDD.context.broadcast(groupKeyListParam.toList)
+    val aggregateAction_bc = preRDD.context.broadcast(aaListParam.toList)
+
+    // 在翻译时 对aaList中一个column中既存在goup,又存在 aggregate的，只保留aggregate
+    var orders: JList[TOrderItem] = null
+    import scala.collection.JavaConversions._
+    for (aa <- aaListParam) {
+      if (aa.getOrders != null) {
+        if (orders == null) {
+          orders = aa.getOrders
+        }
+        else {
+          throw new RuntimeException("一个stageSquid中只能有一个 (first_value|last_value)聚合")
+        }
+      }
+    }
+    val orders_tobc = if(orders == null) {
+      null
+    } else {
+      orders.toList
+    }
+    val orders_bc = preRDD.context.broadcast(orders_tobc)
+
+    val aggRDD: RDD[(Seq[DataCell], mutable.HashMap[Int, Any])] = preRDD.rdd.mapPartitions((iter) => {
+      val gkList = groupKeyList_bc.value
+      iter.map(map => {
+        val keyGroupBuf = new ArrayBuffer[DataCell]()
+        if(gkList != null && gkList.size > 0) {
+          gkList.foreach(id => {
+            val dc = map.get(id)
+            if(DSUtil.isNotNull(dc)) {
+              keyGroupBuf += map.get(id)
+            } else {
+              keyGroupBuf += null
+            }
+          })
+        }
+
+        (keyGroupBuf.toSeq, map)
+      })
+    }).aggregateByKey(new mutable.HashMap[Int, Any]()) (
+      // 聚合,行数据
+      (aggreMap, row) => {
+        // 聚合一行数据
+        val aggList = aggregateAction_bc.value
+        val orders = orders_bc.value
+
+        aggList.foreach(agg => {
+          val outKey = agg.getOutKey
+          val inKey = agg.getInKey
+          val aggInterData = aggreMap.getOrElse(outKey, null)
+          // 聚合列的值
+          val dc = row.get(inKey)
+          val isNotNull = DSUtil.isNotNull(dc)
+
+          // 根据聚合来取值
+          agg.getType match {
+            case Type.SORT => // 没有聚合
+            case Type.GROUP =>
+              if(aggInterData == null) {
+                aggreMap.put(outKey, dc)
+              }
+            case Type.AVG =>
+              //转换成double
+              dc.setData(dc.getData.asInstanceOf[Number].doubleValue())
+              dc.setdType(TDataType.sysType2TDataType(agg.getColumn.getData_type));
+              if(isNotNull) {
+                if(aggInterData == null) {
+                  aggreMap.put(outKey, new AvgItem(dc))
+                } else {
+                  aggInterData.asInstanceOf[AvgItem].add(dc)
+                }
+              }
+            case Type.COUNT =>
+              // 空值不统计
+              if(aggInterData == null) {
+                if(isNotNull) {
+                  aggreMap.put(outKey, new CountItem(1))
+                } else {
+                  aggreMap.put(outKey, new CountItem(0))
+                }
+              } else {
+                if(isNotNull) {
+                  aggInterData.asInstanceOf[CountItem].addOne()
+                }
+              }
+            case Type.FIRST_VALUE =>
+              if(aggInterData == null) {
+                aggreMap.put(outKey, row)
+              } else {
+                // 根据排序字段比较当前值
+                val compareResult: Int = OrderUtil.compare(aggInterData.asInstanceOf[JMap[Integer, DataCell]], row, orders)
+                if (compareResult > 0) {
+                  aggreMap.put(outKey, row)
+                }
+              }
+            case Type.LAST_VALUE =>
+              if (aggInterData == null) {
+                aggreMap.put(outKey, row)
+              }
+              else {
+                val compareResult: Int = OrderUtil.compare(aggInterData.asInstanceOf[JMap[Integer, DataCell]], row, orders)
+                if (compareResult < 0) {
+                  aggreMap.put(outKey, row)
+                }
+              }
+            case Type.MAX =>
+              if (isNotNull) {
+                if (aggInterData == null) {
+                  aggreMap.put(outKey, dc.clone)
+                }
+                else {
+                  (aggInterData.asInstanceOf[DataCell]).max(dc)
+                }
+              }
+            case Type.MIN =>
+              if (isNotNull) {
+                if (aggInterData == null) {
+                  aggreMap.put(outKey, dc.clone)
+                }
+                else {
+                  (aggInterData.asInstanceOf[DataCell]).min(dc)
+                }
+              }
+            case Type.SUM =>
+              if (isNotNull) {
+                if (aggInterData == null) {
+                  aggreMap.put(outKey, dc.clone)
+                }
+                else {
+                  (aggInterData.asInstanceOf[DataCell]).add(dc)
+                }
+              }
+            case Type.STRING_SUM =>
+              val appendStr = if (isNotNull) {
+                dc.getData.toString
+              } else {
+                ""
+              }
+              if (aggInterData == null) {
+                aggreMap.put(outKey, new StringBuilder(appendStr))
+              }
+              else {
+                (aggInterData.asInstanceOf[StringBuilder]).append(",").append(appendStr)
+              }
+            case _ => throw new EngineException(s"不存在该聚合类型: ${agg.getType}")
+
+          }
+
+        })
+
+        aggreMap
+      }, (aggreMap1, aggreMap2) => {
+        // 两个聚合合并
+        val aggList = aggregateAction_bc.value
+        val orders = orders_bc.value
+        aggList.foreach(agg => {
+          val outKey = agg.getOutKey
+          agg.getType match {
+            case Type.SORT => // 没有聚合
+            case Type.GROUP =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              }
+            case Type.AVG =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              } else {
+                if(!ag2.isEmpty) {
+                  ag1.get.asInstanceOf[AvgItem]
+                    .add(ag2.get.asInstanceOf[AvgItem])
+                }
+              }
+            case Type.COUNT =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              } else {
+                if(!ag2.isEmpty) {
+                  ag1.get.asInstanceOf[CountItem]
+                    .add(ag2.get.asInstanceOf[CountItem])
+                }
+              }
+
+            case Type.FIRST_VALUE =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              } else {
+                if(!ag2.isEmpty) {
+                  val agg1 = ag1.get.asInstanceOf[JMap[Integer, DataCell]]
+                  val agg2 = ag2.get.asInstanceOf[JMap[Integer, DataCell]]
+                  val compareResult = OrderUtil.compare(agg1, agg2, orders)
+                  if (compareResult > 0) {
+                    aggreMap1.put(outKey, agg2)
+                  }
+                }
+              }
+
+            case Type.LAST_VALUE =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              } else {
+                if(!ag2.isEmpty) {
+                  val agg1 = ag1.get.asInstanceOf[JMap[Integer, DataCell]]
+                  val agg2 = ag2.get.asInstanceOf[JMap[Integer, DataCell]]
+                  val compareResult = OrderUtil.compare(agg1, agg2, orders)
+                  if (compareResult < 0) {
+                    aggreMap1.put(outKey, agg2)
+                  }
+                }
+              }
+
+            case Type.MAX =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              } else {
+                if(!ag2.isEmpty) {
+                  ag1.get.asInstanceOf[DataCell]
+                    .max(ag2.get.asInstanceOf[DataCell])
+                }
+              }
+
+            case Type.MIN =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              } else {
+                if(!ag2.isEmpty) {
+                  ag1.get.asInstanceOf[DataCell]
+                    .min(ag2.get.asInstanceOf[DataCell])
+                }
+              }
+
+            case Type.SUM =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              } else {
+                if(!ag2.isEmpty) {
+                  ag1.get.asInstanceOf[DataCell]
+                    .add(ag2.get.asInstanceOf[DataCell])
+                }
+              }
+
+            case Type.STRING_SUM =>
+              val ag1 = aggreMap1.get(outKey)
+              val ag2 = aggreMap2.get(outKey)
+              if(ag1.isEmpty) {
+                if(!ag2.isEmpty) {
+                  aggreMap1.put(outKey, ag2.get)
+                }
+              } else {
+                if(!ag2.isEmpty) {
+                  ag1.get.asInstanceOf[StringBuilder].append(",")
+                    .append(ag2.get.asInstanceOf[StringBuilder])
+                }
+              }
+
+            case _ => throw new EngineException(s"不存在该聚合类型: ${agg.getType}")
+          }
+        })
+        aggreMap1
+      }
+    )
+
+    aggRDD.mapPartitions((iter) => {
+      val aggList = aggregateAction_bc.value
+      iter.map(t2 => {
+        val aggreMap = t2._2
+        var last_first_key = 0
+        aggList.foreach(aa => {
+          if(aa.getType == Type.FIRST_VALUE || aa.getType == Type.LAST_VALUE)
+            last_first_key = aa.getOutKey
+        })
+
+        val outMap = new util.HashMap[Integer, DataCell]()
+        aggList.foreach(aa => {
+          val outKey = aa.getOutKey
+          aa.getType match {
+            case Type.AVG =>
+              val ai = aggreMap.get(outKey)
+              if(ai.isEmpty) {
+                outMap.put(outKey, null)
+              } else {
+                outMap.put(outKey, ai.get.asInstanceOf[AvgItem].avg())
+              }
+            case Type.COUNT =>
+              val ai = aggreMap.get(outKey)
+              if(ai.isEmpty) {
+                outMap.put(outKey, null)
+              } else {
+                outMap.put(outKey, new DataCell(TDataType.LONG, ai.get.asInstanceOf[CountItem].count()))
+              }
+            case Type.FIRST_VALUE =>
+              val ai = aggreMap.get(outKey)
+              if(ai.isEmpty) {
+                outMap.put(outKey, null)
+              } else {
+                outMap.put(outKey, ai.get.asInstanceOf[util.Map[Integer, DataCell]].get(aa.getInKey))
+              }
+            case Type.LAST_VALUE =>
+              val ai = aggreMap.get(outKey)
+              if(ai.isEmpty) {
+                outMap.put(outKey, null)
+              } else {
+                outMap.put(outKey, ai.get.asInstanceOf[util.Map[Integer, DataCell]].get(aa.getInKey))
+              }
+            case Type.SORT =>
+              if (last_first_key != 0) {
+                val ai = aggreMap.get(last_first_key)
+                if(ai.isEmpty) {
+                  outMap.put(outKey, null)
+                } else {
+                  outMap.put(outKey, ai.get.asInstanceOf[util.Map[Integer, DataCell]].get(aa.getInKey))
+                }
+//                outMap.put(outKey, (aggreMap.get(last_first_key).get.asInstanceOf[util.Map[Integer, DataCell]]).get(aa.getInKey))
+              }
+            case Type.STRING_SUM =>
+              val ai = aggreMap.get(outKey)
+              if(ai.isEmpty) {
+                outMap.put(outKey, null)
+              } else {
+                outMap.put(outKey, new DataCell(TDataType.CSV,ai.get.asInstanceOf[StringBuilder].toString()))
+              }
+            case _ =>
+              val ai = aggreMap.get(outKey)
+              if(ai.isEmpty) {
+                outMap.put(outKey, null)
+              } else {
+                outMap.put(outKey, ai.get.asInstanceOf[DataCell])
+              }
+//              outMap.put(aa.getOutKey, aggreMap.get(aa.getOutKey).get.asInstanceOf[DataCell])
+          }
+
+          // 数据精度校验
+          aggList.foreach(aa => {
+            if(
+//              aa.getType == Type.SORT ||
+              aa.getType == Type.AVG ||
+              aa.getType == Type.SUM ||
+              aa.getType == Type.MAX ||
+              aa.getType == Type.MIN ||
+              aa.getType == Type.FIRST_VALUE ||
+              aa.getType == Type.LAST_VALUE) {
+              import scala.collection.JavaConversions._
+              val _columnId = aa.getOutKey
+              val _outData = outMap.get(_columnId)
+              if (DSUtil.isNotNull(_outData)
+                && outMap.get(_columnId).getdType == TDataType.BIG_DECIMAL) {
+                  val scala: Int = aa.getColumn.getScale
+                  val bigDecimal: BigDecimal = _outData.getData.asInstanceOf[BigDecimal]
+                  val result: DataCell = new DataCell(_outData.getdType, bigDecimal.setScale(scala, BigDecimal.ROUND_HALF_UP))
+                  outMap.put(_columnId, result)
+              } else {
+                // do nothing
+              }
+            }
+          })
+        })
+        outMap
+      })
+    })
+
+  }
+}

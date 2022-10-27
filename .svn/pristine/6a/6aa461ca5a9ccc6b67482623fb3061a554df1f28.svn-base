@@ -1,0 +1,6 @@
+#! /bin/bash
+BASE_DIR=$(cd `dirname $0`; pwd)
+echo $BASE_DIR
+cd $BASE_DIR
+java -Xms512m -Xmx3000m -XX:PermSize=256M -XX:MaxPermSize=512m  -cp engine.jar:lib/*:hadoop_conf/:./  com.eurlanda.datashire.engine.util.DeployUtil $1 2>&1 > logs/init.log
+

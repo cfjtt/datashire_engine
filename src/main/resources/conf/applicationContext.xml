@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:context="http://www.springframework.org/schema/context"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-4.2.xsd
+	http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.2.xsd"
+	default-autowire="byName">
+
+    <context:property-placeholder location="classpath:conf/configuration.properties"/>
+
+    <!--
+    <aop:aspectj-autoproxy proxy-target-class="true"/>
+    -->
+
+    <bean id="dataSource_sys"
+          class="com.alibaba.druid.pool.DruidDataSource"
+          init-method="init"
+          destroy-method="close">
+        <property name="driverClassName" value="com.mysql.jdbc.Driver"></property>
+        <property name="url" value="jdbc:mysql://${INNER_MYSQL_HOST}:${INNER_MYSQL_PORT}/${INNER_MYSQL_DATABASENAME}"></property>
+        <property name="username" value="${INNER_MYSQL_USERNAME}"></property>
+        <property name="password" value="${INNER_MYSQL_PASSWORD}"></property>
+
+        <!-- 配置初始化大小、最小、最大 -->
+        <property name="initialSize" value="${jdbc.pool.init}" />
+        <property name="minIdle" value="${jdbc.pool.minIdle}" />
+        <property name="maxActive" value="${jdbc.pool.maxActive}" />
+
+        <!-- 配置获取连接等待超时的时间 -->
+        <property name="maxWait" value="60000" />
+
+        <!-- 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒 -->
+        <property name="timeBetweenEvictionRunsMillis" value="60000" />
+
+        <!-- 配置一个连接在池中最小生存的时间，单位是毫秒 -->
+        <property name="minEvictableIdleTimeMillis" value="300000" />
+
+        <property name="validationQuery" value="${validationQuery.sql}" />
+        <property name="testWhileIdle" value="true" />
+        <property name="testOnBorrow" value="false" />
+        <property name="testOnReturn" value="false" />
+        <!-- 配置监控统计拦截的filters -->
+        <property name="filters" value="stat" />
+    </bean>
+
+    <!-- DataMining mysql-->
+    <bean id="dataSource_sys_DataMining"
+          class="com.alibaba.druid.pool.DruidDataSource"
+          init-method="init"
+          destroy-method="close">
+        <property name="driverClassName" value="com.mysql.jdbc.Driver"></property>
+        <property name="url" value="jdbc:mysql://${INNER_MYSQL_HOST}:${INNER_MYSQL_PORT}/${INNER_DataMining_MYSQL_DATABASENAME}"></property>
+        <property name="username" value="${INNER_MYSQL_USERNAME}"></property>
+        <property name="password" value="${INNER_MYSQL_PASSWORD}"></property>
+
+        <!-- 配置初始化大小、最小、最大 -->
+        <property name="initialSize" value="${jdbc.pool.init}" />
+        <property name="minIdle" value="${jdbc.pool.minIdle}" />
+        <property name="maxActive" value="${jdbc.pool.maxActive}" />
+
+        <!-- 配置获取连接等待超时的时间 -->
+        <property name="maxWait" value="60000" />
+
+        <!-- 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒 -->
+        <property name="timeBetweenEvictionRunsMillis" value="60000" />
+
+        <!-- 配置一个连接在池中最小生存的时间，单位是毫秒 -->
+        <property name="minEvictableIdleTimeMillis" value="300000" />
+
+        <property name="validationQuery" value="${validationQuery.sql}" />
+        <property name="testWhileIdle" value="true" />
+        <property name="testOnBorrow" value="false" />
+        <property name="testOnReturn" value="false" />
+        <!-- 配置监控统计拦截的filters -->
+        <property name="filters" value="stat" />
+    </bean>
+
+    <bean id="sysJdbcTemplate" class="org.springframework.jdbc.core.JdbcTemplate">
+        <constructor-arg name="dataSource">
+            <ref bean="dataSource_sys"/>
+        </constructor-arg>
+    </bean>
+
+    <bean id="dmJdbcTemplate" class="org.springframework.jdbc.core.JdbcTemplate">
+        <constructor-arg name="dataSource">
+            <ref bean="dataSource_sys_DataMining"/>
+        </constructor-arg>
+    </bean>
+
+
+	<!-- servie层配置 -->
+	<context:component-scan base-package="com.eurlanda.datashire.engine"/>
+
+    <!--①邮件服务器-->
+    <bean id="mailSender" class="org.springframework.mail.javamail.JavaMailSenderImpl">
+        <property name="protocol" value="${MAIL_PROTOCOL}"/>
+        <property name="host" value="${MAIL_HOST}"/>
+        <property name="port" value="${MAIL_PORT}" />
+        <property name="username" value="${MAIL_USERNAME}"/>
+        <property name="password" value="${MAIL_PASSWORD}"/>
+        <property name="javaMailProperties">
+            <props>
+                <prop key="mail.smtp.auth">${MAIL_SMTP_AUTH}</prop>
+                <prop key="mail.smtp.starttls.enable">${MAIL_SMTP_STARTTLS_ENABLE}</prop>
+                <prop key="mail.smtp.socketFactory.class">javax.net.ssl.SSLSocketFactory</prop>
+                <!--gmail要求的ssl连接-->
+            </props>
+        </property>
+	</bean>
+
+    <!-- 配置自定义的时间任务(Job) -->
+    <bean id="myJob" class="com.eurlanda.datashire.engine.job.MyJob" />
+    <!--datashire_cloud地址-->
+    <beans profile="cloud">
+        <!-- cloud配置数据源1 -->
+        <bean id="dataSource_web_cloud"
+              class="com.alibaba.druid.pool.DruidDataSource"
+              init-method="init"
+              destroy-method="close">
+            <property name="driverClassName" value="com.mysql.jdbc.Driver"></property>
+            <property name="url" value="jdbc:mysql://${INNER_WEB_MYSQL_HOST}:${INNER_WEB_MYSQL_PORT}/${INNER_WEB_MYSQL_DATABASENAME}"></property>
+            <property name="username" value="${INNER_WEB_MYSQL_USERNAME}"></property>
+            <property name="password" value="${INNER_WEB_MYSQL_PASSWORD}"></property>
+
+            <!-- 配置初始化大小、最小、最大 -->
+            <property name="initialSize" value="${jdbc.pool.init}" />
+            <property name="minIdle" value="${jdbc.pool.minIdle}" />
+            <property name="maxActive" value="${jdbc.pool.maxActive}" />
+
+            <!-- 配置获取连接等待超时的时间 -->
+            <property name="maxWait" value="60000" />
+
+            <!-- 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒 -->
+            <property name="timeBetweenEvictionRunsMillis" value="60000" />
+
+            <!-- 配置一个连接在池中最小生存的时间，单位是毫秒 -->
+            <property name="minEvictableIdleTimeMillis" value="300000" />
+
+            <property name="validationQuery" value="${validationQuery.sql}" />
+            <property name="testWhileIdle" value="true" />
+            <property name="testOnBorrow" value="false" />
+            <property name="testOnReturn" value="false" />
+            <!-- 配置监控统计拦截的filters -->
+            <property name="filters" value="stat" />
+        </bean>
+        <!--cloudTemplate-->
+        <bean id="webCloudJdbcTemplate" class="org.springframework.jdbc.core.JdbcTemplate">
+            <constructor-arg name="dataSource">
+                <ref bean="dataSource_web_cloud"/>
+            </constructor-arg>
+        </bean>
+    </beans>
+</beans>

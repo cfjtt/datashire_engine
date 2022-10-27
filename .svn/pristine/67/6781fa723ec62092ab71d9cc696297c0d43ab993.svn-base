@@ -1,0 +1,5 @@
+#! /bin/bash
+
+basepath=$(cd `dirname $0`; pwd)
+
+docker run -d --name mysql-meta -p 3306:3306 --restart=always  -v /data/server/db-meta:/var/lib/mysql -v $basepath/conf.d:/etc/mysql/conf.d  -e MYSQL_ROOT_PASSWORD=111111 -d mysql:5.6

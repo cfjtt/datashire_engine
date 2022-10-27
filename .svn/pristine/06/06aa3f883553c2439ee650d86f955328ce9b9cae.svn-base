@@ -1,0 +1,116 @@
+package com.eurlanda.datashire.engine.entity;
+
+import com.eurlanda.datashire.engine.exception.EngineException;
+import com.eurlanda.datashire.engine.spark.mllib.QuantifySquid;
+import com.eurlanda.datashire.engine.spark.mllib.model.QuantifyModel;
+import com.eurlanda.datashire.engine.util.DSUtil;
+import com.eurlanda.datashire.engine.util.DataCellUtil;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.Function;
+import scala.Tuple3;
+
+import java.sql.SQLException;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Created by zhudebin on 14-6-9.
+ */
+public class TQuantifyTrainSquid extends TTrainSquid {
+
+    private static Log log = LogFactory.getLog(TDiscretizeTrainSquid.class);
+    private double min;
+    private double max;
+    // true  区分，false不区分大小写
+    private boolean isIgnored;
+
+    public TQuantifyTrainSquid() {
+        this.setType(TSquidType.QUANTIFY_TRAIN_SQUID);
+    }
+
+    @Override
+    public Object run(JavaSparkContext jsc) throws EngineException {
+
+        if (preSquid.getOutRDD() == null) {
+            preSquid.runSquid(jsc);
+        }
+        percentage = 1.0F; //量化的训练比例100%，没有测试数据
+        java.sql.Connection conn = null;
+        try {
+            String tableName = getTableName();
+            conn = getConnectionFromDS();
+            String saveModelSql = getSaveModelSql(tableName);
+            int modelVersion = init(conn,tableName);
+            if (key > 0) {
+                JavaRDD<Map<Integer, DataCell>> preRDD = preSquid.getOutRDD().cache();
+                List<DataCell> list = preRDD.map(new Function<Map<Integer, DataCell>, DataCell>() {
+                    @Override
+                    public DataCell call(Map<Integer, DataCell> v1) throws Exception {
+                        return v1.get(key);
+                    }
+                }).distinct().collect();
+                for (final DataCell dc : list) {
+                    JavaRDD<Map<Integer, DataCell>> filterRDD = preRDD.filter(new Function<Map<Integer, DataCell>, Boolean>() {
+                        @Override
+                        public Boolean call(Map<Integer, DataCell> v1) throws Exception {
+                            if (DSUtil.isNull(dc)) {
+                                return DSUtil.isNull(v1.get(key));
+                            } else {
+                                return dc.equals(v1.get(key));
+                            }
+                        }
+                    });
+                    // 模型，模型精确性，总数
+                    Tuple3<QuantifyModel, Float, Long> t3 =
+                            new QuantifySquid(filterRDD, inKey, isIgnored, min, max).run();
+                    saveModel(conn, tableName, saveModelSql, DataCellUtil.getData(dc).toString(),
+                            modelVersion, t3._1(), t3._2(), t3._3());
+                }
+            } else {
+                // 模型，模型精确性，总数
+                Tuple3<QuantifyModel, Float, Long> t3 = new QuantifySquid(preSquid.getOutRDD(),
+                        inKey, isIgnored, min, max).run();
+                saveModel(conn, tableName, saveModelSql, key + "", modelVersion, t3._1(), t3._2(), t3._3());
+            }
+            return null;
+        } catch (Throwable e) {
+            log.error("训练或保存模型异常", e);
+            throw new RuntimeException(e);
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    public double getMin() {
+        return min;
+    }
+
+    public void setMin(double min) {
+        this.min = min;
+    }
+
+    public double getMax() {
+        return max;
+    }
+
+    public void setMax(double max) {
+        this.max = max;
+    }
+
+    public boolean isIgnored() {
+        return isIgnored;
+    }
+
+    public void setIgnored(boolean isIgnored) {
+        this.isIgnored = isIgnored;
+    }
+}

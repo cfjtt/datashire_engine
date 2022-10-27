@@ -1,0 +1,37 @@
+version: '3'
+services:
+  kafka:
+    image: wurstmeister/kafka
+    restart: always
+    privileged: true
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: ${KAFKA_ZOOKEEPER_ADDRESS}
+      KAFKA_ADVERTISED_HOST_NAME: ${IP}
+      KAFKA_CREATE_TOPICS: "ds_log:1:1"
+  server:
+    image: "eurlanda/server:2.2.5.0"
+    restart: always
+    network_mode: host
+    privileged: true
+    volumes:
+      - ./logs/server-logs:/opt/server/server-logs
+      - /opt/cloudera/parcels/CDH-5.8.5-1.cdh5.8.5.p0.5/lib/hadoop/lib/native:/opt/hadoop-lib
+      - ./hadoop_conf:/opt/server/hadoop_conf
+      - ./server/config:/opt/server/config
+    depends_on:
+      - kafka
+  engine:
+    image: "eurlanda/engine:2.2.5.0"
+    restart: always
+    network_mode: host
+    privileged: true
+    volumes:
+      - ./logs/engine-logs:/opt/engine/engine-logs
+      - ./hadoop_conf:/opt/engine/hadoop_conf
+      - ./engine/conf:/opt/engine/conf
+    depends_on:
+      - kafka
+

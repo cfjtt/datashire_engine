@@ -1,0 +1,500 @@
+package com.eurlanda.datashire.engine.translation;
+
+import cn.com.jsoft.jframe.utils.ClassUtils;
+import cn.com.jsoft.jframe.utils.jdbc.IConnectionProvider;
+import cn.com.jsoft.jframe.utils.jdbc.JDBCTemplate;
+import com.eurlanda.datashire.adapter.db.AdapterDataSourceManager;
+import com.eurlanda.datashire.engine.entity.*;
+import com.eurlanda.datashire.engine.enumeration.TTransformationInfoType;
+import com.eurlanda.datashire.engine.exception.TargetSquidNotPersistException;
+import com.eurlanda.datashire.engine.util.cool.JList;
+import com.eurlanda.datashire.entity.*;
+import com.eurlanda.datashire.enumeration.NoSQLDataBaseType;
+import com.eurlanda.datashire.enumeration.SquidTypeEnum;
+import com.eurlanda.datashire.enumeration.TransformationTypeEnum;
+import com.eurlanda.datashire.utility.EnumException;
+import com.eurlanda.datashire.utility.NoSqlConnectionUtil;
+import com.mongodb.BasicDBObject;
+import com.mongodb.DB;
+import com.mongodb.DBCursor;
+import com.mongodb.DBObject;
+
+import java.sql.Connection;
+import java.util.*;
+
+/**
+ * Created by zhudebin on 16/3/17.
+ */
+public class StageTransformationActionTranslator extends TransformationActionTranslator {
+    private BuilderContext ctx;
+    private TTransformationSquid tTransformationSquid;
+    public StageTransformationActionTranslator(DataSquid dataSquid, IdKeyGenerator idKeyGenerator, Map<String, DSVariable> variableMap, BuilderContext ctx, TTransformationSquid tTransformationSquid) {
+        super(dataSquid, idKeyGenerator, variableMap);
+        this.ctx = ctx;
+        this.tTransformationSquid = tTransformationSquid;
+        // 判断该stageSquid是否有exceptionSquid连接
+        List<Squid> nextSquids = this.ctx.getNextSquids(dataSquid);
+        for(Squid sq : nextSquids) {
+            if(sq.getSquid_type() == SquidTypeEnum.EXCEPTION.value()) {
+                hasException = true;
+                break;
+            }
+        }
+    }
+
+    @Override protected List<TTransformationAction> buildTransformationActions() {
+        List<TTransformationAction> actions = new ArrayList<>();
+        List<Transformation> begins = this.getBeginTrs();
+
+        // 添加一个对没有参与转换的virtual transformation的key进行remove
+        List<ReferenceColumn> referenceColumns = dataSquid.getSourceColumns();
+        HashSet<Integer> removeKeys = new HashSet<>();
+        for(ReferenceColumn rc : referenceColumns) {
+            removeKeys.add(rc.getColumn_id());
+            for(Transformation t : begins) {
+                if(t.getColumn_id() == rc.getColumn_id()) {
+                    removeKeys.remove(rc.getColumn_id());
+                    break;
+                }
+            }
+        }
+        boolean isRemoved = true;
+        if(removeKeys.size()>0) {
+            isRemoved = false;
+        }
+
+        Queue<Transformation> workQue = new LinkedList();
+        workQue.addAll(begins);
+        int loopCount = 0;
+        while (workQue.size() > 0) {
+            Transformation tf = workQue.poll();
+            TTransformationAction action = this.buildAction(tTransformationSquid,tf, dataSquid);
+            if(action==null){		// 如果当前squid不能被编译，那么等待本轮编译完成之后再编译。
+                workQue.add(tf);
+                loopCount++;
+                if(loopCount > workQue.size()) {
+                    // 打印存在问题的transformation
+                    StringBuilder sb = new StringBuilder("{");
+                    while(workQue.size()>0) {
+                        Transformation t = workQue.poll();
+                        sb.append("[").append(t.getName()).append("] ");
+                    }
+                    sb.append("}");
+                    throw new RuntimeException("翻译transformation异常,存在异常引用transformatons " + sb.toString());
+                } else {
+                    continue;
+                }
+            } else {
+                loopCount = 0;
+            }
+            if(!isRemoved) {
+                Set<Integer> rmKeys = action.getRmKeys();
+                if(rmKeys == null) {
+                    action.setRmKeys(removeKeys);
+                } else {
+                    rmKeys.addAll(removeKeys);
+                }
+            }
+            // 判断是否为常量transformation
+            TTransformation ttran = action.gettTransformation();
+            TranslateUtil.transVariable(ttran, ctx.getVariable(), dataSquid);
+
+            /**
+             * 增加变量，及squid_id
+             */
+            action.gettTransformation().getInfoMap().put(TTransformationInfoType.VARIABLE.dbValue, ctx.getVariable());
+            action.gettTransformation().getInfoMap().put(TTransformationInfoType.SQUID_ID.dbValue,
+                    dataSquid.getId());
+
+            actions.add(action);
+            List<Transformation> outs = this.getOutTrs(tf);
+
+            if (outs != null) { // 添加子节点
+                for(Transformation x: outs){
+                    if(!workQue.contains(x)){
+                        workQue.add(x);
+                    }
+                }
+            }
+        }
+        // id 字段
+        TTransformationAction idAction = buildIDAction();
+        if(idAction!=null){
+            actions.add(idAction);
+        }
+        for(TTransformationAction ac : actions) {
+            if (ac.gettTransformation().getType() == TransformationTypeEnum.RULESQUERY) {
+                HashMap<Integer,String> rulequeryColumIdName = new HashMap<>();
+                for (ReferenceColumn refcol : referenceColumns) {
+                    rulequeryColumIdName.put(refcol.getColumn_id(),refcol.getName());
+                }
+                ac.gettTransformation().getInfoMap().put("RulesqueryReferenceColumnIdAndName",rulequeryColumIdName);
+            }
+        }
+
+        return actions;
+    }
+
+    /**
+     * 检查翻译ID自增列。
+     * @return
+     */
+    protected TTransformationAction buildIDAction() {
+        if(dataSquid instanceof DataMiningSquid){
+            return null;
+        }
+
+
+        Column idCol = null;
+        for (Column col : dataSquid.getColumns()) {
+            if (col.getName().toLowerCase().equals("id")) {
+                idCol= col;
+                break;
+            }
+        }
+        if(idCol==null) return null;
+
+        Transformation tf = super.getTranByColumnId(idCol.getId());
+        List<Transformation> inTrs = this.getInTrs(tf);				// 如果Transformation有连线就跳过。非系统ID
+        if(inTrs.size()>0){
+            return null;
+        }
+
+
+        Integer destId = dataSquid.getDestination_squid_id();
+        Integer max = 0;
+        if(dataSquid.isIs_persisted() && destId!=null){
+            if(idCol==null) return null;
+
+            // 求现有落地表中最大的ID值
+            DBConnectionInfo dbci = null;
+            if(destId==0) {
+                throw new TargetSquidNotPersistException(dataSquid.getName());
+                // 内部默认hbase
+//                dbci = TranslateUtil.getDefaultDBConnectionInfo();
+            } else if(destId>0
+                    // 判断是否勾选了清空旧数据
+                    && (dataSquid.isTruncate_existing_data_flag() != 1)) {
+
+                Squid dbs = this.ctx.getSquidById(destId);
+                if(dbs instanceof DbSquid) {
+                    DbSquid dbSquid = (DbSquid) this.ctx.getSquidById(destId);
+                    dbci = DBConnectionInfo.fromDBSquid(dbSquid);
+                    final DBConnectionInfo dbConnectionInfo = dbci;
+                    JDBCTemplate jdbc = new JDBCTemplate(new IConnectionProvider() {
+                        @Override
+                        public Connection getConnection() throws Exception {
+                            return AdapterDataSourceManager.createConnection(dbConnectionInfo);
+                        }
+                    });
+                    max = jdbc.queryForInt("Select Max("
+                            + new TColumn().getName(dbConnectionInfo.getDbType(), idCol.getName())
+                            + ") as max_val From " + dataSquid.getTable_name());
+                } else if(dbs instanceof NOSQLConnectionSquid) {
+                    NOSQLConnectionSquid nosqlConnectionSquid = (NOSQLConnectionSquid)dbs;
+                    if(nosqlConnectionSquid.getDb_type() == NoSQLDataBaseType.MONGODB.value()) {
+                        DB db = NoSqlConnectionUtil.createMongoDBConnection(nosqlConnectionSquid);
+                        DBCursor
+                                dbCursor = db.getCollection(dataSquid.getTable_name()).find(new BasicDBObject(idCol.getName(), 1)).sort(new BasicDBObject(idCol.getName(), -1)).limit(1);
+                        if(dbCursor.hasNext()) {
+                            DBObject dbObject = dbCursor.next();
+                            if (dbObject != null && dbObject.get(idCol.getName()) != null) {
+                                max = Integer.parseInt(dbObject.get(idCol.getName()).toString());
+                            }
+                        }
+                    }
+                }
+            }
+
+        }
+        int maxVal = (int) (max==null?0:max);
+
+        TTransformationAction action = new TTransformationAction();
+        TTransformation ttf = new TTransformation();
+        ttf.setType(TransformationTypeEnum.AUTO_INCREMENT);
+        ttf.setInKeyList(new JList<Integer>(0));
+        ttf.setOutKeyList(new JList<Integer>(idCol.getId()));
+        ttf.setDbId(tf.getId());
+        HashMap<String,Object> infoMap = new HashMap<String, Object>();
+        infoMap.put(TTransformationInfoType.ID_AUTO_INCREMENT_MIN.dbValue,maxVal-1);
+        ttf.setInfoMap(infoMap);
+        ttf.setName(tf.getName());
+        action.settTransformation(ttf);
+
+        return action;
+
+    }
+
+    /**
+     * 待完成
+     *
+     * @param tf
+     * @return
+     */
+    protected TTransformationAction buildAction(TTransformationSquid tsquid,Transformation tf, Squid cursquid) {
+
+        //检查本transformation是否满足运行条件。 transformationLink
+        List<Transformation> intrs = this.getInTrs(tf);
+        for(Transformation x: intrs){
+            if(!trsCache.containsKey(x.getId())){
+                log.debug("transformation不满足编译条件，退出。");
+                return null;
+            }
+        }
+
+        TTransformationAction action = new TTransformationAction();
+        TTransformation ttf = new TTransformation();
+        // todo: 需要确定每个transformation 的参数。
+        // ttf.putInfo(tf.get);
+        TransformationTypeEnum typeEnum = null;
+        try {
+            typeEnum = TransformationTypeEnum.valueOf(tf.getTranstype());
+            ttf.setType(typeEnum);
+        } catch (EnumException e) {
+            e.printStackTrace();
+        }
+        ttf.setOutKeyList(genOutKeyList(tf));
+
+        //		ttf.setFilterExpression(translateTrsFilter(tf.getTran_condition(), cursquid));
+        ttf.setFilterExpression(TranslateUtil.translateTransformationFilter(tf.getTran_condition(), (DataSquid) cursquid, this.trsCache, ctx.getVariable()));
+        ttf.setInputsFilter(getFilterList(tf, cursquid));
+        if(!isConstantTrs(tf)){
+            ttf.setInKeyList(getInkeyList(tf));
+        }
+        ttf.setName(tf.getName());
+        ttf.setDbId(tf.getId());
+        HashMap<String, Object> infoMap = (HashMap<String, Object>)ClassUtils.bean2Map(tf);
+        // 转换变量的值
+        TranslateUtil.convertVariable(infoMap, ctx.getVariable(), cursquid);
+        // 转换transInput的值
+
+        infoMap.put(TTransformationInfoType.SQUID_FLOW_ID.dbValue, this.ctx.squidFlow.getId());
+        infoMap.put(TTransformationInfoType.SQUID_FLOW_NAME.dbValue, this.ctx.squidFlow.getName());
+        infoMap.put(TTransformationInfoType.PROJECT_ID.dbValue, this.ctx.squidFlow.getProject_id());
+        infoMap.put(TTransformationInfoType.PROJECT_NAME.dbValue,this.ctx.project.getName());
+        infoMap.put(TTransformationInfoType.TASK_ID.dbValue,this.ctx.getTaskId());
+        infoMap.put(TTransformationInfoType.JOB_ID.dbValue, this.ctx.jobId);
+
+        if(dataSquid instanceof DataMiningSquid && typeEnum.equals(TransformationTypeEnum.VIRTUAL)){
+            infoMap.put(TTransformationInfoType.SKIP_VALIDATE.dbValue, true);
+        }
+        String isUsingDictionary = infoMap.get("is_using_dictionary").toString();//是否使用词典，0 表示不用，1表示使用
+        if (!isUsingDictionary.equals("0") && tf.getDictionary_squid_id() != 0) {
+            Integer columnId = 0;
+            Squid squid = this.ctx.getSquidById(tf.getDictionary_squid_id());
+            if (squid instanceof DocExtractSquid) {
+                DocExtractSquid docExt = (DocExtractSquid) squid;
+                columnId = docExt.getColumns().get(0).getId();
+            } else if (squid instanceof DataSquid) {
+               // columnId = ((DataSquid) squid).getColumns().get(0).getId();
+                DataSquid dataSquid=(DataSquid) squid;
+                 for( Column column :dataSquid.getColumns()){    // 寻找连线的列作为词典列
+                     for(Transformation transformation: dataSquid.getTransformations()) {
+                         if(column.getId() == transformation.getColumn_id()){
+                             columnId = column.getId();
+                             break;
+                         }
+                     }
+                 }
+            }
+            TSquid ts = this.ctx.getSquidOut(squid);
+            infoMap.put(TTransformationInfoType.DICT_SQUID.dbValue, ts);
+            infoMap.put(TTransformationInfoType.DICT_COLUMN_KEY.dbValue, columnId);
+        }
+        // 训练数据
+        SquidTypeEnum squidTypeEnum =  SquidTypeEnum.parse(this.dataSquid.getSquid_type());
+        if(typeEnum.equals(TransformationTypeEnum.TRAIN)){
+            infoMap.put(TTransformationInfoType.TRAIN_MODEL_TYPE.dbValue, squidTypeEnum);
+              if(squidTypeEnum.equals(SquidTypeEnum.PLS) ){ 	 //需要 X Y 标准化模型
+                int xNormalizerModelSquidId = ((DataMiningSquid) cursquid).getX_model_squid_id();
+                int yNormalizerModelSquidId = ((DataMiningSquid) cursquid).getY_model_squid_id();
+                HashMap<String, Object> xNormalizedModelMap = getPlsNormailzerPredictModel(tsquid, tf, ttf ,
+                        xNormalizerModelSquidId,"xNormalizerModel");
+                HashMap<String, Object> yNormalizedModelMap = getPlsNormailzerPredictModel(tsquid, tf, ttf ,
+                         yNormalizerModelSquidId,"yNormalizerModel");
+                infoMap.putAll(xNormalizedModelMap);
+                infoMap.putAll(yNormalizedModelMap);
+            }
+        }else if(typeEnum.equals(TransformationTypeEnum.PREDICT) ||
+                typeEnum.equals(TransformationTypeEnum.INVERSEQUANTIFY)
+                 ||  typeEnum.equals(TransformationTypeEnum.INVERSENORMALIZER)){		// 预测模型。
+            int predictSquidId = tf.getModel_squid_id();
+         //   HashMap<String, Object> infoMaptmp = getPlsNormailzerPredictModel(tsquid, tf, ttf, predictSquidId,TTransformationInfoType.PREDICT_MODEL_TYPE.dbValue);
+         //  infoMap.putAll(infoMaptmp);
+            // int predictSquidId = tf.getModel_squid_id();
+            // 拿到预测模型。
+            Map<String,Object> dm_squid=getCurJdbc().queryForMap("select s.* from  ds_squid s where s.id=?",predictSquidId);
+            //			Integer isVersion = (Integer) dm_squid.get("VERSIONING");
+            Integer modelVersion = tf.getModel_version();
+            Integer secSFID = (Integer) dm_squid.get("SQUID_FLOW_ID");
+
+            //从Hbase数据库获取训练完毕的模型语句
+          //  String sql = "select model from "+ HbaseUtil.genTrainModelTableName(this.ctx.getRepositoryId(), secSFID, predictSquidId);
+            //从 Mysql 数据库获取训练完毕的模型语句
+            String sql = "select model from "+ TTrainSquid.genTrainModelTableName(this.ctx.getRepositoryId(),secSFID, predictSquidId);
+
+            // 判断是否指定key
+            boolean isKey = false;
+            if(ttf.getInKeyList().size()==1) {
+                isKey = false;
+            } else if(ttf.getInKeyList().size()==2) {
+                isKey = true;
+                sql += " where `KEY` = ? ";
+            }
+            if(modelVersion== -1){
+                sql+=" order by version desc limit 1";
+            }else{
+                if(isKey) {
+                    sql += " and version =" + modelVersion;
+                } else {
+                    sql += " where version =" + modelVersion;
+                }
+            }
+            // 模型的数据查询迁移到运行时，
+            //			Map<String,Object> data = ConstantUtil.getHbaseJdbc().queryForMap(sql);
+            infoMap.put(TTransformationInfoType.PREDICT_MODEL_TYPE.dbValue, SquidTypeEnum.parse((Integer) dm_squid.get("SQUID_TYPE_ID")));
+            // 先放SQL
+            infoMap.put(TTransformationInfoType.PREDICT_DM_MODEL.dbValue,sql);
+            // 如果预测使用了其它squid的产生的模型并且该squid与依赖的squid在同一squid，必须设置依赖.
+            if(secSFID==this.ctx.squidFlow.getId()){
+                TSquid out = this.ctx.getSquidOut(predictSquidId);
+                List<TSquid> depends = tsquid.getDependenceSquids();
+                if(depends==null){
+                    depends= new JList<TSquid>();
+                    tsquid.setDependenceSquids(depends);
+                }
+                depends.add(out);
+            }
+        } else if(typeEnum.equals(TransformationTypeEnum.RULESQUERY)) { //查询关联规则模型
+            // 记录关联规则模型的表名，版本号
+            int modelsquidId = tf.getModel_squid_id();
+            Map<String, Object> dm_squid = getCurJdbc().queryForMap("select s.* from ds_squid s  where s.id=?", modelsquidId);
+            Integer selectedModelVersion = tf.getModel_version();
+            Integer secSFID = (Integer) dm_squid.get("SQUID_FLOW_ID");
+            String trainModelTableName = TTrainSquid.genTrainModelTableName(this.ctx.getRepositoryId(),secSFID, modelsquidId);
+            infoMap.put("AssociationRulesModelTableName",trainModelTableName);
+            boolean isKey = false;  // 是否指定key
+            if (ttf.getInKeyList().size() == 1) {
+                isKey = false;
+            } else if (ttf.getInKeyList().size() == 2) {
+                isKey = true;
+            }
+            infoMap.put("AssociationRulesModelIsKey", isKey);
+            infoMap.put(TTransformationInfoType.PREDICT_MODEL_TYPE.dbValue, SquidTypeEnum.parse((Integer) dm_squid.get("SQUID_TYPE_ID")));
+            String modelVersionSQL = null;
+            if(selectedModelVersion == -1) { // -1 表示选择最大版本
+                modelVersionSQL = " select max(version) maxModelVersion from " + trainModelTableName + " ";
+            }else{ // 指定版本
+                modelVersionSQL = " select version maxModelVersion from " + trainModelTableName + " ";
+            }
+            // 判断是否指定key
+            if(ttf.getInKeyList().size()==1) {
+                isKey = false;
+            } else if(ttf.getInKeyList().size()==2) {
+                isKey = true;
+                modelVersionSQL += " where `KEY` = ? ";
+            }
+            if(selectedModelVersion== -1){
+                modelVersionSQL+=" order by version desc limit 1";
+            }else{
+                if(isKey) {
+                    modelVersionSQL += " and version =" + selectedModelVersion;
+                } else {
+                    modelVersionSQL += " where version =" + selectedModelVersion;
+                }
+            }
+            infoMap.put(TTransformationInfoType.PREDICT_DM_MODEL.dbValue,modelVersionSQL);
+            infoMap.put("AssociationRulesModelVersionSQL",modelVersionSQL);
+            // 如果预测使用了其它squid的产生的模型并且该squid与依赖的squid在同一squid，必须设置依赖.
+            if(secSFID==this.ctx.squidFlow.getId()){
+                TSquid out = this.ctx.getSquidOut(modelsquidId);
+                List<TSquid> depends = tsquid.getDependenceSquids();
+                if(depends==null){
+                    depends= new JList<TSquid>();
+                    tsquid.setDependenceSquids(depends);
+                }
+                depends.add(out);
+            }
+        }
+        if (isLastTrsOfSquid(tf)) { // column 指定notnull
+            int colId = tf.getColumn_id();
+            for (Column col : dataSquid.getColumns()) {
+                if (col.getId() == colId) {
+                    boolean bool = col.isNullable();
+                    infoMap.put(TTransformationInfoType.IS_NULLABLE.dbValue, bool);
+                    infoMap.put(TTransformationInfoType.STRING_MAX_LENGTH.dbValue, col.getLength());
+                    infoMap.put(TTransformationInfoType.NUMERIC_PRECISION.dbValue, col.getPrecision());
+                    infoMap.put(TTransformationInfoType.NUMERIC_SCALE.dbValue, col.getScale());
+                    // 放置的系统类型，主要用于对于smallInt, bigInt,tinyInt等进行数据大小验证
+                    if(col.getAggregation_type()<=0) {
+                        infoMap.put(TTransformationInfoType.VIRT_TRANS_OUT_DATA_TYPE.dbValue, col.getData_type());
+                    } else {
+                        // 标记这个transformation为 参与聚合的列，不需要对数据进行校验
+                        if(!col.isIs_groupby()) {
+                            infoMap.put(TTransformationInfoType.AGGREGATION_COLUMN.dbValue, 1);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        ttf.setInfoMap(infoMap);
+
+        action.settTransformation(ttf);
+
+        action.setRmKeys(getDropedTrsKeys(tf));
+
+        trsCache.put(tf.getId(), ttf);
+
+        return action;
+    }
+
+    private HashMap<String, Object> getPlsNormailzerPredictModel(TTransformationSquid tsquid, Transformation tf, TTransformation ttf ,
+                                                                 int predictSquidId, String normailzerModelName) {
+        HashMap<String, Object> infoMap = new HashMap();
+
+        // 拿到预测模型。
+        Map<String,Object> dm_squid=getCurJdbc().queryForMap("select s.* from  ds_squid s where s.id=?",predictSquidId);
+        Integer modelVersion = tf.getModel_version();
+        Integer secSFID = (Integer) dm_squid.get("SQUID_FLOW_ID");
+
+        //从 Mysql 数据库获取训练完毕的模型语句
+        String sql = "select model from "+ TTrainSquid.genTrainModelTableName(this.ctx.getRepositoryId(),secSFID, predictSquidId);
+
+        // 判断是否指定key
+        boolean isKey = false;
+        if (ttf.getInKeyList().size() == 2) { // pls 有两个inputs
+            isKey = false;
+        } else if (ttf.getInKeyList().size() == 3) { // pls 有两个inputs,第三个是用于分组的key
+            isKey = true;
+            sql += " where `KEY` = ? ";
+        }
+        if(modelVersion== -1 || modelVersion== 0){ // modelVersion = -1 表示最新版本
+       // if(modelVersion== 0){
+            sql+=" order by version desc limit 1";
+        }else {
+            if (isKey) {
+                sql += " and version =" + modelVersion;
+            } else {
+                sql += " where version =" + modelVersion;
+            }
+        }
+        // 模型的数据查询迁移到运行时，
+        infoMap.put(TTransformationInfoType.PREDICT_MODEL_TYPE.dbValue, SquidTypeEnum.parse((Integer) dm_squid.get("SQUID_TYPE_ID")));
+        // 先放SQL
+        infoMap.put(normailzerModelName,sql);
+        // 如果预测使用了其它squid的产生的模型并且该squid与依赖的squid在同一squid，必须设置依赖.
+        if(secSFID==this.ctx.squidFlow.getId()){
+            TSquid out = this.ctx.getSquidOut(predictSquidId);
+            List<TSquid> depends = tsquid.getDependenceSquids();
+            if (depends == null) {
+                depends = new JList<TSquid>();
+                tsquid.setDependenceSquids(depends);
+            }
+            depends.add(out);
+        }
+        return infoMap;
+    }
+
+
+}

@@ -1,0 +1,127 @@
+package com.eurlanda.datashire.engine.util;
+
+import com.eurlanda.datashire.engine.entity.transformation.Area;
+import com.eurlanda.datashire.engine.entity.transformation.AreaProxy;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
+/**
+ * Created by Akachi on 2015/1/12.
+ */
+public class AreaUtil {
+
+    private static AreaProxy areas;
+    private final static String AREAS_PATH="/area/AREA.txt";
+
+    /**
+     * 初始化地区表
+     */
+    public static void init(){
+        String strs[] = FileUtil.smashRead( AREAS_PATH);
+        Map<String,Area> map = new HashMap<String,Area>();
+        for(String str :strs) {
+            Area area = new Area(str.split(","));
+            map.put(area.getKey(), area);
+        }
+        for(Entry<String,Area> entry :map.entrySet()) {
+            if(entry.getValue().getLevel()!=null&&entry.getValue().getLevel()==1){//获取第一级
+                areas =new AreaProxy(entry.getValue());
+            }
+            if(map.containsKey(entry.getValue().getParentKey())) {
+                Area area = map.get(entry.getValue().getParentKey());//获取父节点
+                Map<String, Area> areaSize = area.getChilds();
+                if (areaSize == null) {
+                    area.setChilds(new HashMap<String, Area>());
+                    areaSize=area.getChilds();
+                }
+                areaSize.put(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    public static List<String> findCountry(String sourceStr){
+        Integer startIndex=0;//起始位置
+        List<String> wordbookClumn;//字典
+        Integer mod=3;//1=first,2=last,3=left,4=right
+        Integer isFull=2;
+        Area area = AreaUtil.getAreas();
+        List<String> list = new ArrayList<String>();
+        list.add(area.getName());
+        DictionaryMatchUtil dmu = new DictionaryMatchUtil();
+        dmu.setWordbook(list);
+        List<String> resultValue = dmu.match(startIndex,sourceStr,mod,isFull);
+
+        if(resultValue==null||resultValue.size()==0){
+           // resultValue.add("中国");
+            throw new NullPointerException("数据文件中没有找到" + sourceStr);
+        }
+
+        resultValue.get(0);//由于默认数据只会有中国所有get(0)
+        return resultValue;
+    }
+
+    /**
+     * 获得指定当前级别的名称
+     * @param sourceStr 元字符串
+     * @param area 父级对象
+     * @param level 深入级别
+     * @return
+     */
+    public static List<String> findArea(String sourceStr,AreaProxy area,Integer level){
+        Integer startIndex=0;//起始位置
+        List<String> wordbookClumn;//字典
+        Integer mod=3;//1=first,2=last,3=left,4=right
+        Integer isFull=2;
+        startIndex = sourceStr.indexOf(area.getName());
+        if(startIndex==-1){
+            startIndex=0;
+        }else{
+            startIndex=startIndex+area.getName().length();
+        }
+
+        DictionaryMatchUtil dmuProvince = new DictionaryMatchUtil();
+        dmuProvince.setWordbook(area.getChildsStr());
+        /*if(level>1) {
+            dmuProvince.setWordbook(area.getCityStr());//插入字典
+        } else {
+            dmuProvince.setWordbook(area.getChildsStr());//插入字典
+        }*/
+        List<String> contrastResult = dmuProvince.match(startIndex,sourceStr,mod,isFull);
+        if(contrastResult==null||contrastResult.size()==0){
+            if(area.getChildsStr()!=null&&area.getChildsStr().size()==1){//如果搜索不到结果并且只有一个子节点择直接取子节点
+                contrastResult = area.getChildsStr();
+                area.setTheArea(area.getChild(contrastResult.get(0)));
+            }else{//如果不存在子节点，或者存在多个子节点的情况下由于未搜索到本级节点名，固返回null..
+                return null;
+            }
+        }else{//如果查询结果非空则继续
+            Area theArea = area.getChild(contrastResult.get(0));
+            area.setTheArea(theArea);
+        }
+        if(level>1){
+            if(area==null||area.getChilds()==null||area.getChilds().entrySet()==null||area.getChilds().entrySet().size()==0){
+                return null;
+            }
+            return findArea(sourceStr,area,level-1);
+        }else{
+            List<String> listString = new ArrayList<String>();
+            listString.add(area.getFullName());
+            return listString;
+        }
+    }
+
+    public static Area getAreas() {
+        if(areas==null){
+            init();
+        }
+        return areas.getTheArea();
+    }
+
+    public static void main(String[] args){
+        System.out.println((1 << 16)-1);
+    }
+}

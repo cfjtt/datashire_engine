@@ -1,0 +1,31 @@
+from eurlanda/centos-jdk8:1.0
+
+LABEL maintainer="debin.zhu@eurlanda.com"
+LABEL name="engine"
+LABEL description="engine"
+LABEL release-date="2018-09-03"
+LABEL version="1.0"
+
+RUN mkdir -p /opt/engine
+
+RUN mkdir -p /opt/hadoop-conf
+
+ADD target/engine.jar /opt/engine
+
+ADD target/lib /opt/engine
+
+ADD doc/server-compose/initYarnJar.sh /opt/engine
+
+ENV IP localhost
+
+RUN echo "CONTAINER_IP=$IP"
+
+RUN export SPARK_LOCAL_IP=$IP
+
+RUN export SPARK_PUBLIC_DNS=$IP
+
+RUN chmod +x /opt/engine/initYarnJar.sh
+
+RUN sh /opt/engine/initYarnJar.sh /opt/engine/lib
+
+RUN nohup java -Xms512m -Xmx4000m -XX:PermSize=256M -XX:MaxPermSize=512m  -Dspring.profiles.active=cloud,docker -cp engine.jar:lib/*:/opt/hadoop_conf com.eurlanda.datashire.engine.EngineServer >./logs/start.log 2>&1 &

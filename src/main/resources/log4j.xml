@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE log4j:configuration SYSTEM "log4j.dtd">
+
+<log4j:configuration>
+
+    <appender name="CONSOLE" class="org.apache.log4j.ConsoleAppender">
+        <!--<param name="Encoding" value="UTF-8" />-->
+        <layout class="org.apache.log4j.PatternLayout">
+            <param name="ConversionPattern"
+                   value="%d - %c -%-4r [%t] %-5p %x - %m%n" />
+        </layout>
+
+    </appender>
+
+    <!-- 输出到日志文件 每天一个日志  -->
+    <appender name="FILELOG_DAILY" class="org.apache.log4j.DailyRollingFileAppender">
+        <!--<param name="Encoding" value="UTF-8" />-->
+        <param name="File" value="logs/daily.log" />
+        <param name="DatePattern" value="'daily.'yyyy-MM-dd'.log'" />
+        <layout class="org.apache.log4j.PatternLayout">
+            <param name="ConversionPattern" value="[%d{yyyy-MM-dd HH:mm:ss\} %-5p] [%t] (%c:%L) - %m%n" />
+        </layout>
+    </appender>
+
+    <logger name="com.eurlanda.datashire.engine.entity.FileRecordSeparator" additivity="false">
+        <level value="info" />
+        <appender-ref ref="FILELOG_DAILY"/>
+    </logger>
+    <logger name="org.springframework" additivity="false">
+        <level value="info" />
+        <appender-ref ref="FILELOG_DAILY"/>
+    </logger>
+    <logger name="com.mchange" additivity="false">
+        <level value="error" />
+        <appender-ref ref="FILELOG_DAILY"/>
+    </logger>
+
+
+
+    <logger name="org.apache.avro" additivity="false">
+        <level value="info"/>
+        <appender-ref ref="FILELOG_DAILY"/>
+    </logger>
+    <logger name="org.apache.hadoop.yarn" additivity="false">
+        <level value="error"/>
+        <appender-ref ref="FILELOG_DAILY"/>
+    </logger>
+
+    <root>
+        <priority value="debug" />
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="FILELOG_DAILY" />
+    </root>
+
+</log4j:configuration>

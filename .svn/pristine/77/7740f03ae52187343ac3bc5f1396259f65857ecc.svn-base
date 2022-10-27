@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<allocations>
+    <pool name="p1">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p2">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p3">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p4">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p5">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p6">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p7">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p8">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p9">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p10">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p11">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="p12">
+        <schedulingMode>FAIR</schedulingMode>
+        <weight>1</weight>
+        <minShare>1</minShare>
+    </pool>
+    <pool name="test">
+        <schedulingMode>FIFO</schedulingMode>
+        <weight>2</weight>
+        <minShare>3</minShare>
+    </pool>
+</allocations>

@@ -1,0 +1,140 @@
+#SPARK_MASTER_URL=spark://e101:7077
+#SPARK_HOME_DIR=/home/squid/dse/spark
+#SCHEDULER_LOCATION=/home/squid/soft/spark_yarn/conf/fairscheduler.xml
+# spark
+SPARK_EXECUTOR_MEMORY=7g
+SPARK_YARN_QUEUE=spark
+SPARK_EXECUTOR_CORES=3
+SPARK_EXECUTOR_INSTANCES=0
+SPARK_DRIVER_MEMORY=2G
+SPARK_YARN_ENGINE_JARS_DIR=hdfs://ehadoop/user/datashire/spark2-ds-jars/
+SPARK_JAR_LOCATION=engine.jar,lib/uds-demo.jar,lib/uds-demo1.jar
+SPARK_PROXY_USER=
+SPARK_DRIVER_HOST=
+#SPARK_JAR_LOCATION=/Users/zhudebin/Documents/iworkspace/datashire_svn/datashire_engine/trunk/target/engine.jar
+#SPARK_PROXY_USER=squid
+SPARK_CONFIG={"spark.executor.logs.rolling.maxRetainedFiles":"10", "spark.executor.logs.rolling.strategy":"size", "spark.executor.logs.rolling.maxSize":"1024000","spark.sql.crossJoin.enabled":"true","spark.default.parallelism":"20","spark.hadoop.cloneConf":"true"}
+# 添加了时区设置-Duser.timezone=
+spark_driver_extraJavaOptions=-Duser.timezone=Asia/Shanghai -XX:PermSize=128M -XX:MaxPermSize=512m
+#spark_executor_extraJavaOptions=-XX:PermSize=128M -XX:MaxPermSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/hdata/data01/
+# 添加了时区设置-Duser.timezone=
+spark_executor_extraJavaOptions=-Duser.timezone=Asia/Shanghai -XX:PermSize=128M -XX:MaxPermSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/hdata/data01/
+
+# 动态资源分配
+SPARK_DYNAMICALLOCATION_ENABLED=true
+SPARK_DYNAMICALLOCATION_CONFIG={"spark.shuffle.service.enabled":"true","spark.dynamicAllocation.cachedExecutorIdleTimeout":"1200s","spark.dynamicAllocation.minExecutors":"2","hive.exec.max.dynamic.partitions":"10000"}
+
+# 单作业最大运行task数
+spark.datashire.scheduler.maxrunningtask=5
+
+#最大并发运行数
+PARALLEL_NUM=10
+#hbase 默认分片数
+HBASE_EXTRACT_PARTITIONS_DEFAULT=32
+# 数据库分页查询，pageSize
+SQL_PAGE_SIZE=10000
+
+# engine rpc server 测试使用
+ENGINE_RPC_SERVER_IP=127.0.0.1
+#ENGINE_RPC_SERVER_IP=192.168.137.101
+ENGINE_RPC_SERVER_PORT=11099
+
+# report rpc server 报表功能已经移除
+REPORT_RPC_SERVER_IP=127.0.0.1
+REPORT_RPC_SERVER_PORT=9002
+
+# server rpc server
+SERVER_RPC_SERVER_IP=127.0.0.1
+SERVER_RPC_SERVER_PORT=9003
+
+# crawler rpc server爬虫功能已经移除
+CRAWLER_RPC_SERVER_IP=127.0.0.1
+CRAWLER_RPC_SERVER_PORT=9093
+
+# KAFKA Brokers
+KAFKA_BROKER_LIST=${KAFKA_BROKER_LIST}
+KAFKA_LOG_TOPIC=ds_log
+
+# zookeeper kafka
+KAFKA_ZOOKEEPER_ADDRESS=${KAFKA_ZOOKEEPER_ADDRESS}
+
+MAIL_PROTOCOL=${MAIL_PROTOCOL}
+MAIL_HOST=${MAIL_HOST}
+MAIL_PORT=${MAIL_PORT}
+MAIL_USERNAME=${MAIL_USERNAME}
+MAIL_PASSWORD=${MAIL_PASSWORD}
+MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH}
+MAIL_SMTP_STARTTLS_ENABLE=${MAIL_SMTP_STARTTLS_ENABLE}
+
+IS_LOG_TO_DB=false
+IS_LOCAL=${IS_LOCAL}
+IS_START_SCHEDULE=${IS_START_SCHEDULE}
+START_THRIFTSERVER=${START_THRIFTSERVER}
+ENABLE_HIVE=${ENABLE_HIVE}
+
+HIVE_SERVER2_THRIFT_PORT=10008
+
+# webService
+WEB_SERVICE.TOKEN=85C53BB8CAF87075DB8EFCB56CAB13D6
+WEB_SERVICE.PORT=8580
+WEB_SERVICE.URL=DataShireApi
+WEB_SERVICE.IP=${WEB_SERVICE.IP}
+
+# 内置的 mysql 地址
+INNER_MYSQL_HOST=${INNER_MYSQL_HOST}
+INNER_MYSQL_PORT=${INNER_MYSQL_PORT}
+INNER_MYSQL_DATABASENAME=${INNER_MYSQL_DATABASENAME}
+INNER_MYSQL_USERNAME=${INNER_MYSQL_USERNAME}
+INNER_MYSQL_PASSWORD=${INNER_MYSQL_PASSWORD}
+
+# 内置的 DataMining  mysql地址
+INNER_DataMining_MYSQL_DATABASENAME=${INNER_DataMining_MYSQL_DATABASENAME}
+
+#内置datashire_cloud地址
+INNER_WEB_MYSQL_HOST=${INNER_WEB_MYSQL_HOST}
+INNER_WEB_MYSQL_PORT=${INNER_WEB_MYSQL_PORT}
+INNER_WEB_MYSQL_DATABASENAME=${INNER_WEB_MYSQL_DATABASENAME}
+INNER_WEB_MYSQL_USERNAME=${INNER_WEB_MYSQL_USERNAME}
+INNER_WEB_MYSQL_PASSWORD=${INNER_WEB_MYSQL_PASSWORD}
+
+#pool settings
+jdbc.pool.init=1
+jdbc.pool.minIdle=3
+jdbc.pool.maxActive=10
+validationQuery.sql=SELECT 1
+
+# cloud 新增配置
+# 如果配置项  CLOUD_HDFS_FS_DEFAULTFS 这个配置了,则使用 CLOUD_HDFS_FS_DEFAULTFS
+CLOUD_HDFS_FS_DEFAULTFS=${CLOUD_HDFS_FS_DEFAULTFS}
+CLOUD_HDFS_PRIVATE_DATASHIRE_SPACE=__dsfileserverFS
+CLOUD_HDFS_PUBLIC_DATASHIRE_SPACE=__dsfileserverFS
+
+CLOUD_DB_NUM=${CLOUD_DB_NUM}
+CLOUD_DB_IP_PORT0=${CLOUD_DB_IP_PORT0}
+CLOUD_DB_IP_PORT1=${CLOUD_DB_IP_PORT1}
+CLOUD_DB_IP_PORT2=${CLOUD_DB_IP_PORT2}
+CLOUD_DB_PRIVATE_DATASHIRE__IP_PORT=__biwarehouse
+CLOUD_DB_PUBLIC_DATASHIRE__IP_PORT=__biwarehouse
+
+# 是否是公有数猎场
+IS_CLOUD_PUBLIC_PROJECT=${IS_CLOUD_PUBLIC_PROJECT}
+
+# 系统默认时区
+SYSTEM_TIME_ZONE=GMT+8
+
+#cassandra默认端口
+CASSANDRA_PORT=${CASSANDRA_PORT}
+
+#任务最长等待时间(10分钟)
+WAIT_TIME_OUT=${WAIT_TIME_OUT}
+
+#队列长度
+WAIT_QUEUE_SIZE=${WAIT_QUEUE_SIZE}
+
+#实训squid
+train_file_host=${train_file_host}
+train_file_real_host=${train_file_real_host}
+#实训file
+train_db_host=${train_db_host}
+train_db_real_host=${train_db_real_host}
+

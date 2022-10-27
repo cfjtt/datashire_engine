@@ -1,0 +1,9 @@
+#! /bin/bash
+
+docker pull 192.168.137.215:5000/eurlanda/server:2.2.5.0
+
+docker tag 192.168.137.215:5000/eurlanda/server:2.2.5.0  eurlanda/server:2.2.5.0
+
+docker pull 192.168.137.215:5000/eurlanda/engine:2.2.5.0
+
+docker tag 192.168.137.215:5000/eurlanda/engine:2.2.5.0 eurlanda/engine:2.2.5.0

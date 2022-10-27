@@ -1,0 +1,165 @@
+package com.eurlanda.datashire.engine.entity.transformation;
+
+import com.eurlanda.datashire.engine.entity.*;
+import com.eurlanda.datashire.engine.enumeration.TTransformationInfoType;
+import com.eurlanda.datashire.engine.spark.mllib.nlp.TFIDFSquid;
+import com.eurlanda.datashire.engine.spark.mllib.nlp.TFIDFWithoutUserDictionarySquid;
+import com.eurlanda.datashire.engine.spark.util.SegProcessor;
+import com.eurlanda.datashire.entity.TransformationInputs;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.Function;
+import org.apache.spark.broadcast.Broadcast;
+
+import java.util.*;
+
+
+/**
+ * Created by zhudebin on 14-6-5.
+ */
+public class TokenizationProcessor extends TransformationProcessor {
+    private static Log log = LogFactory.getLog(CommonProcessor.class);
+
+    // 待做的transformation 操作
+    private TTransformationAction tTransformationAction;
+
+    public TokenizationProcessor(JavaRDD<Map<Integer, DataCell>> inputRDD, TTransformationAction tTransformationAction) {
+        this.inputRDD = inputRDD;
+        this.tTransformationAction = tTransformationAction;
+    }
+
+    public JavaRDD<Map<Integer, DataCell>> process(JavaSparkContext jsc) {
+        TTransformation ttran = tTransformationAction.gettTransformation();
+        Map<String, Object> infoMap = ttran.getInfoMap();
+        // cidian  SQUID
+        TSquid dictSquid = (TSquid) infoMap.get(TTransformationInfoType.DICT_SQUID.dbValue);
+        String isUsingDictionary = infoMap.get("is_using_dictionary").toString();//是否使用词典，0 表示不用，1表示使用
+        if (isUsingDictionary.equals("0") || dictSquid == null) { // 用户不指定词典，用系统自带词典
+            return processWithoutUserDictionary(jsc); // tfidf可有词典，也可没有词典，FEATURE_SELECTION必须有词典
+        } else {
+            int alInt = (Integer) infoMap.get(TTransformationInfoType.TOKENIZATION_ALGORITHM.dbValue);
+            // 生成特征值的算法
+            String algorithm = null;
+            if (alInt == 0) {
+                algorithm = "TFIDF";
+            } else if (alInt == 1) {
+                algorithm = "FEATURE_SELECTION";
+            } else {
+                throw new RuntimeException("不支持该分词算法：" + alInt);
+            }
+            if (!dictSquid.isFinished()) {
+                try {
+                    dictSquid.runSquid(jsc);
+                } catch (Exception e) {
+                    log.error("TFIDF 上游squid 运行异常", e);
+                    throw new RuntimeException(e);
+                }
+            }
+            // 词典所属squid 的哪一列
+            final Integer key = (Integer) ttran.getInfoMap().get(TTransformationInfoType.DICT_COLUMN_KEY.dbValue);
+            final List<String> dict = dictSquid.getOutRDD().map(new Function<Map<Integer, DataCell>, String>() {
+                @Override
+                public String call(Map<Integer, DataCell> map) throws Exception {
+                    if (map.get(key) == null) {
+                        throw new RuntimeException("这里怎么可能为空，key:" + key + ",map:" + map);
+                    }
+                    return map.get(key).getData().toString(); // 如果字典是数字int，则(Stirng)强转回导致异常
+                }
+            }).collect();
+            Map<String,Object> paramMap = getInputValue(0,tTransformationAction.gettTransformation());
+            boolean isContant = (Boolean) paramMap.get("isContant");
+            String inputValue =  paramMap.get("inputValue").toString();
+            Broadcast<Boolean> isConstBd = jsc.broadcast(isContant);
+            Broadcast<String> putValueBd = jsc.broadcast(inputValue);
+            if ("TFIDF".equals(algorithm)) {
+                return new TFIDFSquid(inputRDD, ttran.getInKeyList().get(0), ttran.getOutKeyList().get(0), dict,isContant,inputValue).run(jsc).toJavaRDD();
+            } else if ("FEATURE_SELECTION".equals(algorithm)) {
+                final Integer inkey = ttran.getInKeyList().get(0);
+                final Integer outkey = ttran.getOutKeyList().get(0);
+                final Set<Integer> rmKeys = tTransformationAction.getRmKeys();
+                return inputRDD.map(new Function<Map<Integer, DataCell>, Map<Integer, DataCell>>() {
+                    @Override
+                    public Map<Integer, DataCell> call(Map<Integer, DataCell> map) throws Exception {
+                        if (map.containsKey(0)) {
+                            return map;
+                        }
+                        Map<Integer, DataCell> resultMap = new HashMap<>();
+                        try {
+                            if(isConstBd.value()){
+                                resultMap.put(outkey, new DataCell(TDataType.CSN, SegProcessor.getFeature(putValueBd.value(), dict)));
+                            } else {
+                                resultMap.put(outkey, new DataCell(TDataType.CSN, SegProcessor.getFeature(map.get(inkey).getData().toString(), dict)));
+                            }
+                        } catch (Exception e) {
+                            log.error("分词transformation 异常", e);
+                            resultMap.put(TTransformationSquid.ERROR_KEY, new DataCell(TDataType.STRING, "分词transformation 异常:" + e.getMessage()));
+                        }
+                        for (int i : map.keySet()) {
+                            if (!rmKeys.contains(i)) {
+                                resultMap.put(i, map.get(i));
+                            }
+                        }
+                        return resultMap;
+                    }
+                });
+            } else {
+                throw new IllegalArgumentException("分词算法参数不匹配,期望(TFIDF/FEATURE_SELECTION),实际上为" + algorithm);
+            }
+        }
+    }
+
+    public TTransformationAction gettTransformationAction() {
+        return tTransformationAction;
+    }
+
+    public void settTransformationAction(TTransformationAction tTransformationAction) {
+        this.tTransformationAction = tTransformationAction;
+    }
+
+    public Map<String,Object> getInputValue(int index,TTransformation tf){
+        Map<String,Object> returnMap = new HashMap<>();
+        ArrayList<TransformationInputs> inputList = (ArrayList<TransformationInputs>) tf.getInfoMap().get("inputs");
+        if (inputList != null && inputList.size() > 0) {
+            TransformationInputs input = inputList.get(index);
+            String[] dataTypeArr = input.getInput_Data_Type().split(",");
+            TDataType dataType = TDataType.sysType2TDataType(Integer.parseInt(dataTypeArr[0]));
+            String value = input.getInput_value();
+            if(input.getSource_type() == 1){
+                Object dataCellValue = TColumn.toTColumnValue(value,dataType);
+                returnMap.put("isContant",true);
+                returnMap.put("inputValue",dataCellValue);
+            } else if(input.getSource_type() == 2){
+                returnMap.put("isContant",true);
+                returnMap.put("inputValue",new DataCell(dataType,null));
+            } else {
+                returnMap.put("isContant",false);
+            }
+        }
+        return returnMap;
+    }
+
+    /**
+     * 用户不指定词典
+     * @param jsc
+     * @return
+     */
+    public JavaRDD<Map<Integer, DataCell>>  processWithoutUserDictionary(JavaSparkContext jsc){
+        TTransformation ttran = tTransformationAction.gettTransformation();
+        Map<String, Object> infoMap = ttran.getInfoMap();
+        int alInt = (Integer)infoMap.get(TTransformationInfoType.TOKENIZATION_ALGORITHM.dbValue);
+        // 生成特征值的算法
+        String algorithm = null;  // tfidf可有词典，也可没有词典，FEATURE_SELECTION必须有词典
+        if(alInt == 0) {
+            algorithm = "TFIDF";
+        } else if(alInt == 1) {
+            algorithm = "FEATURE_SELECTION";
+            throw new RuntimeException("FEATURE_SELECTION需要选词典");
+        } else {
+            throw new RuntimeException("不支持该分词算法：" + alInt);
+        }
+        return  new TFIDFWithoutUserDictionarySquid(inputRDD.rdd(), ttran.getInKeyList().get(0), ttran.getOutKeyList().get(0)).run(jsc.sc()).toJavaRDD();
+        }
+
+}

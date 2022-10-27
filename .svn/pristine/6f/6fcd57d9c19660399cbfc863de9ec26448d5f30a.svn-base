@@ -1,0 +1,280 @@
+package com.eurlanda.datashire.engine.entity;
+
+import com.eurlanda.datashire.engine.exception.EngineException;
+import com.eurlanda.datashire.engine.service.RpcServerFactory;
+import com.eurlanda.datashire.engine.util.EngineLogFactory;
+import com.eurlanda.datashire.engine.util.JsonUtil;
+import com.eurlanda.datashire.engine.util.ServerRpcUtil;
+import org.apache.avro.AvroRemoteException;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.spark.api.java.JavaSparkContext;
+
+import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 用于debug
+ * Created by Juntao.Zhang on 2014/4/23.
+ */
+public class TDebugSquid extends TSquid {
+    private static Log logger = LogFactory.getLog(TDebugSquid.class);
+
+    private static String PRE_CHAR = "";
+
+    private TSquid previousSquid;
+    /**
+     * debug暂停标志符号
+     */
+    private boolean pause = true;
+    //rdd 是否cache 目前支持MEMORY_AND_DISK_SER
+    private boolean persist = false;
+    /**
+     * debug推数据标志符号
+     */
+    private boolean isDataView = false;
+
+    /**
+     * debug 断点标记符
+     */
+    private boolean isBreakPoint = false;
+
+    public TDebugSquid() {
+        setType(TSquidType.DEBUG_SQUID);
+    }
+
+    @Override
+    public Object run(JavaSparkContext jsc) throws EngineException {
+        logger.debug("run:" + this.toString());
+
+        // 判断上游的已经执行
+        if (!previousSquid.isFinished()) {
+            try {
+                previousSquid.runSquid(jsc);
+            } catch (EngineException e) {
+                logger.error("debug squid运行异常", e);
+                throw new RuntimeException(e);
+            }
+        }
+
+        outRDD = previousSquid.getOutRDD();
+        if (isDataView || isBreakPoint)
+            persist();
+        //给server推数据
+        if (isDataView) {
+            onDataViewSquid();
+            EngineLogFactory.logInfo(this, "推送数据成功！！");
+        }
+        // 断点， 暂停，等待前端发送继续运行按钮
+        if (isBreakPoint) {
+            EngineLogFactory.logInfo(this, "squidflow 暂停运行...");
+            listen();
+            EngineLogFactory.logInfo(this, "squidflow 恢复运行...");
+        }
+        // 发送squid运行成功
+        ServerRpcUtil.sendSquidSuccessStatus(this, getTaskId(), getCurrentFlow());
+        EngineLogFactory.logInfo(this, "squid " + this.getName() + " 运行成功！！");
+        return null;
+    }
+
+    /**
+     * 给server推数据
+     */
+    private void onDataViewSquid() {
+
+        List<Map<Integer, DataCell>> out = take(100);
+        List<List<Object>> lists = new ArrayList<>();
+        List<Object> list, title;
+        List<Integer> keys;
+        boolean titleFlag = true;
+        //转换数据格式
+        for (Map<Integer, DataCell> m : out) {
+            keys = new ArrayList<>(m.keySet());
+            Collections.sort(keys);
+            // add title
+            if (titleFlag) {
+                title = new ArrayList<>();
+                for (Integer id : keys) {
+                    title.add(Long.valueOf(id));
+                }
+                lists.add(title);
+                titleFlag = false;
+            }
+            //add data
+            list = new ArrayList<>();
+            for (Integer id : keys) {
+                DataCell dc = m.get(id);
+                if(dc == null) {
+                    list.add(encode(PRE_CHAR + "null"));
+                } else {
+//                    list.add(JsonUtil.toJSONString(dc.getData()));
+                    //Array类型的全部转换成["a","b"]这种格式输出
+                    if(dc.getdType() == TDataType.ARRAY){
+                        List dataValue = (List) dc.getData();
+                       if(dataValue!=null && dataValue.size()>0){
+                            StringBuffer buffer = new StringBuffer("");
+                            buffer.append("[");
+                            for(int i=0;i<dataValue.size();i++){
+                                Object obj = dataValue.get(i);
+                                if(obj instanceof String){
+                                    if(!obj.toString().startsWith("\"") && !obj.toString().endsWith("\"")){
+                                        buffer.append(JsonUtil.toJSONString(obj));
+                                    } else {
+                                        buffer.append(obj);
+                                    }
+                                } else {
+                                    buffer.append(obj);
+                                }
+                                if(dataValue.size()>1 && i<dataValue.size()-1){
+                                    buffer.append(",");
+                                }
+                            }
+                            buffer.append("]");
+                            dc.setData(buffer.toString());
+                        }
+                        list.add(encode(PRE_CHAR +dc.getData()+""));
+                    } else if(dc.getdType() == TDataType.DATE
+//                            || dc.getdType() == TDataType.TIME
+                            || dc.getdType() == TDataType.TIMESTAMP
+//                            || dc.getdType() == TDataType.VARBINARY
+                            || dc.getdType() == TDataType.MAP) {
+                        list.add(encode(PRE_CHAR +dc.getData()));
+                    } else if(dc.getdType() == TDataType.VARBINARY){
+                        String str = "";
+                        if(dc.getData()!=null) {
+                            str = "[binary(" + ((byte[]) dc.getData()).length + ")]";
+                        } else {
+                            str=null;
+                        }
+                        list.add(encode(PRE_CHAR+str));
+                    } else if(dc.getdType() == TDataType.TINYINT){
+                        //将byte转换成int类型
+                        if(dc.getData()==null){
+                            list.add(encode(PRE_CHAR+dc.getData()));
+                        } else {
+                            byte data = (byte)dc.getData();
+                            list.add(encode(PRE_CHAR+(data >= 0 ? data : 256+data)));
+                        }
+                    }  else if(dc.getdType() == TDataType.FLOAT || dc.getdType() == TDataType.DOUBLE){
+                        //查看器，防止出现科学计数法
+                        if(dc.getData() == null){
+                            list.add(encode(PRE_CHAR+dc.getData()));
+                        } else {
+                            BigDecimal bd = new BigDecimal(dc.getData().toString());
+                            list.add(encode(PRE_CHAR+bd.toPlainString()));
+                        }
+                    } else {
+                        list.add(encode(PRE_CHAR + dc.getData()));
+                    }
+                }
+//                    list.add(m.get(id)==null?"":m.get(id).getData());
+            }
+            lists.add(list);
+        }
+        String result = JsonUtil.toJSONString(lists);
+        logger.info("========= 推送数据成功:" + result);
+        try {
+            RpcServerFactory.getServerService().onDataViewSquid(getTaskId(), getSquidId(), result);
+        } catch (Exception e) {
+            logger.error("推送数据异常, 数据为:" + result);
+        }
+    }
+
+    //cache rdd
+    private void persist() {
+        if (!persist) {
+            // 不在缓存,避免大的作业查看速度慢
+//            outRDD = outRDD.persist(StorageLevel.MEMORY_AND_DISK_SER());
+            persist = true;
+        }
+    }
+
+    //获取前num行结果
+    public List<Map<Integer, DataCell>> take(int num) {
+        persist();
+        return outRDD.take(num);
+    }
+
+    public List<Map<Integer, DataCell>> takeSample(Boolean withReplacement, int num, int seed) {
+        persist();
+        return outRDD.takeSample(withReplacement, num, seed);
+    }
+
+    private String encode(String str) {
+        try {
+            return URLEncoder.encode(str, "utf-8");
+        } catch (UnsupportedEncodingException e) {
+            return "#error";
+        }
+    }
+
+    /**
+     * 监听
+     */
+    public void listen() {
+        if (isPause()) {
+
+            //通知server 作业暂停
+            try {
+                RpcServerFactory.getServerService().onDebugSquid(getTaskId(), getSquidId());
+            } catch (AvroRemoteException e) {
+                throw new RuntimeException(e);
+            }
+            try {
+                while (isPause()) {
+                    Thread.sleep(500);
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    //释放lock
+    public void release() {
+        pause = false;
+    }
+
+    public TSquid getPreviousSquid() {
+        return previousSquid;
+    }
+
+    public void setPreviousSquid(TSquid previousSquid) {
+        this.previousSquid = previousSquid;
+    }
+
+
+    public boolean isPause() {
+        return pause;
+    }
+
+    public boolean isDataView() {
+        return isDataView;
+    }
+
+    public void setDataView(boolean isDataView) {
+        this.isDataView = isDataView;
+    }
+
+    public boolean isBreakPoint() {
+        return isBreakPoint;
+    }
+
+    public void setBreakPoint(boolean isBreakPoint) {
+        this.isBreakPoint = isBreakPoint;
+    }
+
+    public static void main(String[] args){
+        Double f = 111111111111111111d;
+        System.out.println(f.longValue());
+        NumberFormat nf = NumberFormat.getInstance();
+        nf.setGroupingUsed(false);
+        System.out.println(nf.format(f));
+    }
+}

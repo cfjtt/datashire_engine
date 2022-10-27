@@ -1,0 +1,310 @@
+version: '2'
+services:
+  zookeeper01:
+    image: daocloud.io/daocloud/zookeeper:v0.4
+    container_name: "zookeeper01"
+    hostname: "zookeeper01"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    environment:
+      - "affinity:container!=zookeeper*"
+      - "SERVER_ID=1"
+      - "ZK_SERVERS=server.1=zookeeper01:2888:3888,server.2=zookeeper02:2888:3888,server.3=zookeeper03:2888:3888"
+    restart: unless-stopped
+    command: "/usr/local/zookeeper/zookeeper-cluster.sh start"
+  zookeeper02:
+    image: daocloud.io/daocloud/zookeeper:v0.4
+    container_name: "zookeeper02"
+    hostname: "zookeeper02"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    environment:
+      - "affinity:container!=zookeeper*"
+      - "SERVER_ID=2"
+      - "ZK_SERVERS=server.1=zookeeper01:2888:3888,server.2=zookeeper02:2888:3888,server.3=zookeeper03:2888:3888"
+    restart: unless-stopped
+    command: "/usr/local/zookeeper/zookeeper-cluster.sh start"
+  zookeeper03:
+    image: daocloud.io/daocloud/zookeeper:v0.4
+    container_name: "zookeeper03"
+    hostname: "zookeeper03"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    environment:
+      - "affinity:container!=zookeeper*"
+      - "SERVER_ID=3"
+      - "ZK_SERVERS=server.1=zookeeper01:2888:3888,server.2=zookeeper02:2888:3888,server.3=zookeeper03:2888:3888"
+    restart: unless-stopped
+    command: "/usr/local/zookeeper/zookeeper-cluster.sh start"
+
+  journal01:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    container_name: "journal01"
+    hostname: "journal01"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    environment:
+      - "affinity:container!=journal*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+    restart: unless-stopped
+    volumes:
+      - /var/data/hadoop/journal
+    command: "/usr/local/hadoop/hadoop-cluster.sh start journalnode"
+  journal02:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    container_name: "journal02"
+    hostname: "journal02"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    environment:
+      - "affinity:container!=journal*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+    restart: unless-stopped
+    volumes:
+      - /var/data/hadoop/journal
+    command: "/usr/local/hadoop/hadoop-cluster.sh start journalnode"
+  journal03:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    container_name: "journal03"
+    hostname: "journal03"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    environment:
+      - "affinity:container!=journal*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+    restart: unless-stopped
+    volumes:
+      - /var/data/hadoop/journal
+    command: "/usr/local/hadoop/hadoop-cluster.sh start journalnode"
+
+  namenode01:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    container_name: "namenode01"
+    hostname: "namenode01"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    depends_on:
+      - zookeeper01
+      - zookeeper02
+      - zookeeper03
+      - journal01
+      - journal02
+      - journal03
+    environment:
+      - "affinity:container!=namenode*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+    restart: unless-stopped
+    volumes:
+      - /var/data/hadoop/image/
+    command: "/usr/local/hadoop/hadoop-cluster.sh start namenode-active"
+  namenode02:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    container_name: "namenode02"
+    hostname: "namenode02"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    depends_on:
+      - namenode01
+    environment:
+      - "affinity:container!=namenode*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+    restart: unless-stopped
+    volumes:
+      - /var/data/hadoop/image/
+    command: "/usr/local/hadoop/hadoop-cluster.sh start namenode-standby"
+  datanode:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+      io.daocloud.dce.compose.mode: Global
+    networks:
+      - ha0
+    depends_on:
+      - namenode01
+      - namenode02
+    environment:
+      - "affinity:container!=_datanode*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+    restart: unless-stopped
+    volumes:
+      - /var/data/hadoop/block/
+    command: "/usr/local/hadoop/hadoop-cluster.sh start datanode"
+
+  resourcemanager01:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    container_name: "resourcemanager01"
+    hostname: "resourcemanager01"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    depends_on:
+      - namenode01
+      - namenode02
+    # Typically NameNode and ResourceManager is exclusive.
+    environment:
+      - "affinity:container!=resourcemanager*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "YARN_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_RM_HOSTS=resourcemanager01,resourcemanager02"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+    restart: unless-stopped
+    command: "/usr/local/hadoop/hadoop-cluster.sh start resourcemanager"
+
+  resourcemanager02:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    container_name: "resourcemanager02"
+    hostname: "resourcemanager02"
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+    networks:
+      - ha0
+    depends_on:
+      - namenode01
+      - namenode02
+    # Typically NameNode and ResourceManager is exclusive.
+    environment:
+      - "affinity:container!=resourcemanager*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "YARN_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_RM_HOSTS=resourcemanager01,resourcemanager02"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+    restart: unless-stopped
+    command: "/usr/local/hadoop/hadoop-cluster.sh start resourcemanager"
+
+  nodemanager:
+    image: daocloud.io/daocloud/hadoop-cluster:v0.5
+    labels:
+      io.daocloud.group: hadoop-cluster
+      io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+      io.daocloud.dce.compose.mode: Global
+    networks:
+      - ha0
+    depends_on:
+      - resourcemanager01
+    environment:
+      - "affinity:container!=_nodemanager*"
+      - "NAMESERVICES=cluster"
+      - "HDFS_HA_ENABLE=true"
+      - "YARN_HA_ENABLE=true"
+      - "HADOOP_NN_HOSTS=namenode01,namenode02"
+      - "HADOOP_RM_HOSTS=resourcemanager01,resourcemanager02"
+      - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+      - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+    restart: unless-stopped
+    command: "/usr/local/hadoop/hadoop-cluster.sh start nodemanager"
+
+  mysqlds:
+      image: daocloud.io/yuelan/mysql-ds:1.0
+      container_name: "mysqlds"
+      hostname: "mysqlds"
+      labels:
+        io.daocloud.group: hadoop-cluster
+        io.daocloud.dce.compose.endpoint-spec.mode: dnsrr
+      networks:
+        - ha0
+      # Typically NameNode and ResourceManager is exclusive.
+      environment:
+        - "affinity:container!=mysql-ds*"
+        - "MYSQL_ROOT_PASSWORD=111111"
+      restart: unless-stopped
+
+  datashire:
+      image: daocloud.io/yuelan/datashire:2.0.3
+      container_name: "datashire"
+      hostname: "datashire"
+      labels:
+        io.daocloud.group: hadoop-cluster
+      networks:
+        - ha0
+      depends_on:
+        - nodemanager
+        - mysqlds
+      # Typically NameNode and ResourceManager is exclusive.
+      environment:
+        - "SPARK_EXECUTOR_MEMORY=2G"
+        - "SPARK_EXECUTOR_CORES=1"
+        - "SPARK_DRIVER_MEMORY=1G"
+        - "SPARK_DYNAMICALLOCATION_ENABLED=false"
+        - "SPARK_EXECUTOR_INSTANCES=5"
+        - "HDFS_CLUSTER=cluster"
+        - "ZOOKEEPER_ADDRESS=zookeeper01:2181"
+        - "MYSQL_HOST=mysqlds"
+        - "MYSQL_PORT=3306"
+        - "MYSQL_USERNAME=root"
+        - "MYSQL_PASSWORD=111111"
+        - "NAMESERVICES=cluster"
+        - "HDFS_HA_ENABLE=true"
+        - "YARN_HA_ENABLE=true"
+        - "HADOOP_NN_HOSTS=namenode01,namenode02"
+        - "HADOOP_RM_HOSTS=resourcemanager01,resourcemanager02"
+        - "HADOOP_ZK_URI=zookeeper01:2181,zookeeper02:2181,zookeeper03:2181"
+        - "HADOOP_JOURNAL_URI=qjournal://journal01:8485;journal02:8485;journal03:8485"
+
+      restart: unless-stopped
+      ports:
+        - "9999:9999"
+      command: "/usr/local/datashire/startAll.sh"
+
+networks:
+  ha0:
+    driver: overlay
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
